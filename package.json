@@ -1,0 +1,39 @@
+{
+	"name": "capstone-api",
+	"type": "module",
+	"version": "1.0.0",
+	"main": "index.js",
+	"scripts": {
+		"build": "tsc",
+		"start": "node dist/index.js",
+		"dev": "nodemon --watch src --ext ts,js,json --exec \"dotenv -e .env tsx src/index.ts\"",
+		"staging": "dotenv -e .env.staging tsx watch src/index.ts",
+		"clean": "rm -rf dist"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"description": "",
+	"dependencies": {
+		"@types/bcryptjs": "^2.4.6",
+		"@types/jsonwebtoken": "^9.0.10",
+		"bcryptjs": "^3.0.2",
+		"cors": "^2.8.5",
+		"dotenv": "^17.2.1",
+		"express": "^5.1.0",
+		"jsonwebtoken": "^9.0.2",
+		"mongoose": "^8.17.1"
+	},
+	"devDependencies": {
+		"@types/cors": "^2.8.19",
+		"@types/express": "^5.0.3",
+		"@types/node": "^24.3.0",
+		"cross-env": "^10.0.0",
+		"dotenv-cli": "^10.0.0",
+		"nodemon": "^3.1.10",
+		"ts-node": "^10.9.2",
+		"ts-node-dev": "^2.0.0",
+		"tsx": "^4.20.4",
+		"typescript": "^5.9.2"
+	}
+}
