@@ -4,8 +4,10 @@ node_modules/
 # Production build
 dist/
 
+
+# TODO BRING ME BACK ON PRODUCTION
 # Environment variables
-.env
+# .env
 
 # Logs
 *.log
