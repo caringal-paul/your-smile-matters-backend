@@ -13,6 +13,7 @@ export const GenderEnum: { [K in Gender]: K } = {
 	Other: "Other",
 } as const;
 
+// TODO ADD CUSTOMER NUMBER
 // Customer document type
 export type CustomerModel = Document &
 	MetaData & {

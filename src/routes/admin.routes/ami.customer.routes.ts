@@ -1,12 +1,12 @@
 import { Router, Request, NextFunction } from "express";
 import mongoose, { Types } from "mongoose";
-import { Customer, CustomerModel } from "../models/Customer";
-import { MetaData, TypedResponse } from "../types/base.types";
+import { Customer, CustomerModel } from "../../models/Customer";
+import { MetaData, TypedResponse } from "../../types/base.types";
 import {
 	AuthenticatedRequest,
-	authenticateToken,
-} from "../middleware/authMiddleware";
-import { customError } from "../middleware/errorHandler";
+	authenticateAmiUserToken,
+} from "../../middleware/authMiddleware";
+import { customError } from "../../middleware/errorHandler";
 
 const router = Router();
 
@@ -34,7 +34,7 @@ type CustomerCreateResponse = CustomerResponse & {
 // ---------------- GET ALL CUSTOMERS ----------------
 router.get(
 	"/",
-	authenticateToken,
+	authenticateAmiUserToken,
 	async (
 		req: Request,
 		res: TypedResponse<CustomerResponse[]>,
@@ -64,7 +64,7 @@ router.get(
 // ---------------- GET CUSTOMER BY ID ----------------
 router.get(
 	"/:id",
-	authenticateToken,
+	authenticateAmiUserToken,
 	async (
 		req: Request,
 		res: TypedResponse<CustomerResponse>,
@@ -99,7 +99,7 @@ router.get(
 // ---------------- CREATE CUSTOMER ----------------
 router.post(
 	"/",
-	authenticateToken,
+	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
 		res: TypedResponse<CustomerCreateResponse>,
@@ -171,7 +171,7 @@ router.post(
 // ---------------- UPDATE CUSTOMER ----------------
 router.patch(
 	"/:id",
-	authenticateToken,
+	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
 		res: TypedResponse<CustomerResponse>,
@@ -244,7 +244,7 @@ router.patch(
 // ---------------- DEACTIVATE CUSTOMER ----------------
 router.patch(
 	"/deactivate/:id",
-	authenticateToken,
+	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
 		res: TypedResponse<null>,
@@ -283,7 +283,7 @@ router.patch(
 // ---------------- REACTIVATE CUSTOMER ----------------
 router.patch(
 	"/reactivate/:id",
-	authenticateToken,
+	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
 		res: TypedResponse<null>,

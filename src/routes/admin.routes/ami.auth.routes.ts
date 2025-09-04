@@ -3,18 +3,18 @@ import {
 	comparePassword,
 	generateAccessToken,
 	generateRefreshToken,
-} from "../utils/tokenHandler";
-import { User } from "../models/User";
+} from "../../utils/tokenHandler";
+import { User } from "../../models/User";
 import mongoose from "mongoose";
 import jwt, { Secret, SignOptions } from "jsonwebtoken";
 import {
 	AuthenticatedRequest,
-	authenticateToken,
+	authenticateAmiUserToken,
 	invalidatedTokens,
-} from "../middleware/authMiddleware";
-import { customError } from "../middleware/errorHandler";
-import { TypedResponse } from "../types/base.types";
-import config from "../config/token";
+} from "../../middleware/authMiddleware";
+import { customError } from "../../middleware/errorHandler";
+import { TypedResponse } from "../../types/base.types";
+import config from "../../config/token";
 
 const router = Router();
 
@@ -149,7 +149,7 @@ router.post(
 // ---------------------------
 router.get(
 	"/me",
-	authenticateToken,
+	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
 		res: TypedResponse<{ user: UserAuthResponse }>,
@@ -176,7 +176,7 @@ router.get(
 // ---------------------------
 router.post(
 	"/logout",
-	authenticateToken,
+	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
 		res: TypedResponse<null>,

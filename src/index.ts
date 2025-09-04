@@ -3,13 +3,18 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { connectDatabase } from "./config/database";
 import { errorHandler } from "./middleware/errorHandler";
-
-import userRoutes from "./routes/user.routes";
-import customerRoutes from "./routes/customer.routes";
-import roleRoutes from "./routes/role.routes";
-import authRoutes from "./routes/auth.routes";
-import permissionRoutes from "./routes/permission.routes";
 import { validateEnvironment } from "./utils/validateEnv";
+
+// ADMIN ROUTES
+import adminUserRoutes from "./routes/admin.routes/ami.user.routes";
+import adminCustomerRoutes from "./routes/admin.routes/ami.customer.routes";
+import adminRoleRoutes from "./routes/admin.routes/ami.role.routes";
+import adminAuthRoutes from "./routes/admin.routes/ami.auth.routes";
+import adminPermissionRoutes from "./routes/admin.routes/ami.permission.routes";
+import adminServiceRoutes from "./routes/admin.routes/ami.service.routes";
+
+// CLIENT ROUTES
+import clientServiceRoutes from "./routes/client.routes/sf.service.routes";
 
 dotenv.config();
 validateEnvironment();
@@ -22,12 +27,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
-app.use("/api/auth", authRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/customers", customerRoutes);
-app.use("/api/roles", roleRoutes);
-app.use("/api/permissions", permissionRoutes);
+// Admin Routes
+app.use("/api/admin/auth", adminAuthRoutes);
+app.use("/api/admin/users", adminUserRoutes);
+app.use("/api/admin/customers", adminCustomerRoutes);
+app.use("/api/admin/roles", adminRoleRoutes);
+app.use("/api/admin/permissions", adminPermissionRoutes);
+app.use("/api/admin/services", adminServiceRoutes);
+
+// Client Routes
+app.use("/api/client/services", clientServiceRoutes);
 
 // Health check
 app.get("/health", (req: Request, res: Response) => {

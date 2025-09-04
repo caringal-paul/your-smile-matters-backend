@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { Permission } from "../models/Permission";
+import { Permission } from "../../models/Permission";
 
 const router = Router();
 

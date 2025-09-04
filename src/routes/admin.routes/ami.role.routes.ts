@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { Role } from "../models/Role";
+import { Role } from "../../models/Role";
 
 const router = Router();
 

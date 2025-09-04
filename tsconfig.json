@@ -14,6 +14,10 @@
 		"declarationMap": true,
 		"sourceMap": true
 	},
-	"include": ["src/**/*"],
+	"include": [
+		"src/**/*",
+		"unused/Photographer.ts",
+		"unused/photographer.routes.ts"
+	],
 	"exclude": ["node_modules", "dist"]
 }

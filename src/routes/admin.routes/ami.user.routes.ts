@@ -1,16 +1,16 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { UserModel, User } from "../models/User";
-import { RoleModel, Role } from "../models/Role";
+import { UserModel, User } from "../../models/User";
+import { RoleModel, Role } from "../../models/Role";
 import mongoose, { Types } from "mongoose";
-import { MetaData, TypedResponse } from "../types/base.types";
+import { MetaData, TypedResponse } from "../../types/base.types";
 import {
 	AuthenticatedRequest,
-	authenticateToken,
-} from "../middleware/authMiddleware";
-import { requirePermission } from "../middleware/permissionMiddleware";
-import { generateRandomPassword } from "../utils/generateRandomValues";
-import { hashPassword } from "../utils/tokenHandler";
-import { customError } from "../middleware/errorHandler";
+	authenticateAmiUserToken,
+} from "../../middleware/authMiddleware";
+import { requirePermission } from "../../middleware/permissionMiddleware";
+import { generateRandomPassword } from "../../utils/generateRandomValues";
+import { hashPassword } from "../../utils/tokenHandler";
+import { customError } from "../../middleware/errorHandler";
 
 const router = Router();
 
@@ -36,7 +36,7 @@ type UserCreateResponse = UserResponse & {
 // GET ALL /api/users
 router.get(
 	"/",
-	authenticateToken,
+	authenticateAmiUserToken,
 	async (
 		req: Request,
 		res: TypedResponse<UserResponse[]>,
@@ -108,7 +108,7 @@ router.get(
 // GET /api/users/:id
 router.get(
 	"/:id",
-	authenticateToken,
+	authenticateAmiUserToken,
 	async (
 		req: Request,
 		res: TypedResponse<UserResponse>,
@@ -173,7 +173,7 @@ router.get(
 // POST /api/users
 router.post(
 	"/",
-	authenticateToken,
+	authenticateAmiUserToken,
 	// requirePermission("user:create"),
 	async (
 		req: AuthenticatedRequest,
@@ -268,7 +268,7 @@ router.post(
 // PATCH /api/users/:id
 router.patch(
 	"/:id",
-	authenticateToken,
+	authenticateAmiUserToken,
 	// requirePermission("user:update"),
 	async (
 		req: AuthenticatedRequest,
@@ -379,7 +379,7 @@ router.patch(
 // PATCH /api/users/deactivate/:id
 router.patch(
 	"/deactivate/:id",
-	authenticateToken,
+	authenticateAmiUserToken,
 	// requirePermission("user:update"),
 	async (
 		req: AuthenticatedRequest,
@@ -433,7 +433,7 @@ router.patch(
 // PATCH /api/users/reactivate/:id
 router.patch(
 	"/reactivate/:id",
-	authenticateToken,
+	authenticateAmiUserToken,
 	// requirePermission("user:update"),
 	async (
 		req: AuthenticatedRequest,

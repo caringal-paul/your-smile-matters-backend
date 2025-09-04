@@ -24,7 +24,7 @@ export interface AuthenticatedRequest extends Request {
 	token?: string;
 }
 
-export const authenticateToken = async (
+export const authenticateAmiUserToken = async (
 	req: AuthenticatedRequest,
 	res: Response,
 	next: NextFunction
