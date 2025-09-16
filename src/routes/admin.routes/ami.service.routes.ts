@@ -28,7 +28,7 @@ type ServiceListResponse = {
 
 // GET ALL /api/services/admin (Admin view with full details)
 router.get(
-	"/admin",
+	"/",
 	authenticateAmiUserToken,
 	// requirePermission("service:read"),
 	async (

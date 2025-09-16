@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 import { MetaData } from "../types/base.types";
+import { HydratedDocument } from "mongoose";
 
 // ===========================================
 // PROMO MODEL
@@ -22,24 +23,24 @@ export const DiscountTypeEnum = {
 export type PromoType = keyof typeof PromoTypeEnum;
 export type DiscountType = keyof typeof DiscountTypeEnum;
 
-export type PromoModel = Document &
-	MetaData & {
-		promo_code: string;
-		name: string;
-		description?: string | null;
-		promo_type: PromoType;
-		discount_type: DiscountType;
-		discount_value: number;
-		min_advance_days?: number | null;
-		min_booking_amount?: number | null;
-		max_discount_amount?: number | null;
-		valid_from: Date;
-		valid_until: Date;
-		usage_limit?: number | null;
-		usage_count: number;
-		is_active: boolean;
-		conditions?: string | null;
-	};
+// Document &
+export type PromoModel = MetaData & {
+	promo_code: string;
+	name: string;
+	description?: string | null;
+	promo_type: PromoType;
+	discount_type: DiscountType;
+	discount_value: number;
+	min_advance_days?: number | null;
+	min_booking_amount?: number | null;
+	max_discount_amount?: number | null;
+	valid_from: Date;
+	valid_until: Date;
+	usage_limit?: number | null;
+	usage_count: number;
+	is_active: boolean;
+	conditions?: string | null;
+};
 
 const promoSchema = new Schema<PromoModel>(
 	{
@@ -178,3 +179,5 @@ promoSchema.index({ valid_from: 1, valid_until: 1 });
 promoSchema.index({ is_active: 1 });
 
 export const Promo = mongoose.model<PromoModel>("Promo", promoSchema);
+
+export type PromoDocument = HydratedDocument<PromoModel>;

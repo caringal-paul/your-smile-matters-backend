@@ -12,9 +12,14 @@ import adminRoleRoutes from "./routes/admin.routes/ami.role.routes";
 import adminAuthRoutes from "./routes/admin.routes/ami.auth.routes";
 import adminPermissionRoutes from "./routes/admin.routes/ami.permission.routes";
 import adminServiceRoutes from "./routes/admin.routes/ami.service.routes";
+import adminPackageRoutes from "./routes/admin.routes/ami.package.routes";
+import adminBookingRoutes from "./routes/admin.routes/ami.booking.routes";
+import adminPromoRoutes from "./routes/admin.routes/ami.promo.routes";
 
 // CLIENT ROUTES
 import clientServiceRoutes from "./routes/client.routes/sf.service.routes";
+import clientPackageRoutes from "./routes/client.routes/sf.package.routes";
+import clientPromoRoutes from "./routes/client.routes/sf.promo.routes";
 
 dotenv.config();
 validateEnvironment();
@@ -34,9 +39,14 @@ app.use("/api/admin/customers", adminCustomerRoutes);
 app.use("/api/admin/roles", adminRoleRoutes);
 app.use("/api/admin/permissions", adminPermissionRoutes);
 app.use("/api/admin/services", adminServiceRoutes);
+app.use("/api/admin/packages", adminPackageRoutes);
+app.use("/api/admin/bookings", adminBookingRoutes);
+app.use("/api/admin/promos", adminPromoRoutes);
 
 // Client Routes
 app.use("/api/client/services", clientServiceRoutes);
+app.use("/api/client/packages", clientPackageRoutes);
+app.use("/api/client/promos", clientPromoRoutes);
 
 // Health check
 app.get("/health", (req: Request, res: Response) => {

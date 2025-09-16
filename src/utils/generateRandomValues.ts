@@ -23,6 +23,19 @@ export const generateRandomPassword = (length: number = 12): string => {
 		.join("");
 };
 
+// utils/generateBookingNumber.ts
+export const generateBookingReference = (): string => {
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+	let result = "BK-";
+
+	for (let i = 0; i < 8; i++) {
+		const randomIndex = Math.floor(Math.random() * chars.length);
+		result += chars[randomIndex];
+	}
+
+	return result;
+};
+
 export const generateResetToken = (): {
 	token: string;
 	hashedToken: string;
