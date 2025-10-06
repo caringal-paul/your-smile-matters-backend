@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { formatFieldName } from "../utils/formatFieldName";
 
 // Define the ApiError interface
 export interface ApiError extends Error {
@@ -44,10 +45,10 @@ export const errorHandler = (
 	// Mongoose duplicate key error
 	if (error.code === 11000) {
 		const field = Object.keys(error.keyValue)[0];
-		const errorMessage = `${field} already exists`;
+		const errorMessage = `${formatFieldName(field)} already exists`;
 		return res.status(400).json({
 			status: 400,
-			message: "Duplicate Entry",
+			message: errorMessage,
 			error: errorMessage,
 		});
 	}

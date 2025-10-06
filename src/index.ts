@@ -15,11 +15,15 @@ import adminServiceRoutes from "./routes/admin.routes/ami.service.routes";
 import adminPackageRoutes from "./routes/admin.routes/ami.package.routes";
 import adminBookingRoutes from "./routes/admin.routes/ami.booking.routes";
 import adminPromoRoutes from "./routes/admin.routes/ami.promo.routes";
+import adminPhotographersRoutes from "./routes/admin.routes/ami.photographer.routes";
+import adminEmailRoutes from "./routes/admin.routes/ami.email.routes";
 
 // CLIENT ROUTES
 import clientServiceRoutes from "./routes/client.routes/sf.service.routes";
 import clientPackageRoutes from "./routes/client.routes/sf.package.routes";
 import clientPromoRoutes from "./routes/client.routes/sf.promo.routes";
+import clientPhotographersRoutes from "./routes/client.routes/sf.photographer.routes";
+import clientBookingRoutes from "./routes/client.routes/sf.booking.routes";
 
 dotenv.config();
 validateEnvironment();
@@ -36,17 +40,21 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/admin/auth", adminAuthRoutes);
 app.use("/api/admin/users", adminUserRoutes);
 app.use("/api/admin/customers", adminCustomerRoutes);
+app.use("/api/admin/photographers", adminPhotographersRoutes);
 app.use("/api/admin/roles", adminRoleRoutes);
 app.use("/api/admin/permissions", adminPermissionRoutes);
 app.use("/api/admin/services", adminServiceRoutes);
 app.use("/api/admin/packages", adminPackageRoutes);
 app.use("/api/admin/bookings", adminBookingRoutes);
 app.use("/api/admin/promos", adminPromoRoutes);
+app.use("/api/admin/emails", adminEmailRoutes);
 
 // Client Routes
+app.use("/api/client/photographers", clientPhotographersRoutes);
 app.use("/api/client/services", clientServiceRoutes);
 app.use("/api/client/packages", clientPackageRoutes);
 app.use("/api/client/promos", clientPromoRoutes);
+app.use("/api/client/booking", clientBookingRoutes);
 
 // Health check
 app.get("/health", (req: Request, res: Response) => {

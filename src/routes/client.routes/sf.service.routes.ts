@@ -1,17 +1,40 @@
 import { Router, Request, NextFunction } from "express";
 import { Service } from "../../models/Service";
-import { MetaData, TypedResponse } from "../../types/base.types";
-
+import { Types } from "mongoose";
+import { TypedResponse } from "../../types/base.types";
 import { customError } from "../../middleware/errorHandler";
 
 const router = Router();
+
+// ============================================================================
+// RESPONSE TYPES
+// ============================================================================
+
+interface ServiceLean {
+	_id: Types.ObjectId;
+	name: string;
+	description?: string | null;
+	category: string;
+	price: number;
+	old_price?: number;
+	duration_minutes?: number | null;
+	is_available: boolean;
+	service_gallery: string[];
+	is_active: boolean;
+	created_at: Date;
+	updated_at: Date;
+}
 
 type ServiceListResponse = {
 	id: string;
 	name: string;
 	description?: string | null;
 	category: string;
+	price: number;
+	old_price?: number;
+	duration_minutes?: number | null;
 	is_available: boolean;
+	service_gallery: string[];
 };
 
 type CategorySummary = {
@@ -21,9 +44,34 @@ type CategorySummary = {
 	available_services: number;
 };
 
-// ==================== PUBLIC/CUSTOMER ENDPOINTS ====================
+type RecommendationsResponse = {
+	photography: ServiceListResponse[];
+	beauty: ServiceListResponse[];
+	styling: ServiceListResponse[];
+	equipment: ServiceListResponse[];
+};
 
-// GET /api/services/browse (Public - for clients to browse available services)
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+function convertToListResponse(service: ServiceLean): ServiceListResponse {
+	const { _id, is_active, created_at, updated_at, ...serviceData } = service;
+	return {
+		id: _id.toString(),
+		...serviceData,
+	};
+}
+
+// ============================================================================
+// PUBLIC/CUSTOMER ENDPOINTS
+// ============================================================================
+
+/**
+ * GET /services/browse
+ * Public - for clients to browse available services
+ * Query params: category, available_only, search, sort_by, sort_order
+ */
 router.get(
 	"/browse",
 	async (
@@ -41,14 +89,28 @@ router.get(
 			} = req.query;
 
 			// Build filter for public browsing
-			const filter: any = {};
+			interface BrowseFilter {
+				is_available?: boolean;
+				is_active?: boolean;
+				deleted_at: null;
+				category?: string;
+				$or?: Array<{
+					name?: { $regex: string | unknown; $options: string };
+					description?: { $regex: string | unknown; $options: string };
+				}>;
+			}
+
+			const filter: BrowseFilter = {
+				deleted_at: null,
+			};
+
 			if (available_only === "true") {
 				filter.is_available = true;
 				filter.is_active = true;
 			}
 
 			if (category && category !== "all") {
-				filter.category = category;
+				filter.category = category as string;
 			}
 
 			if (search) {
@@ -59,19 +121,23 @@ router.get(
 			}
 
 			// Build sort
-			const sortObj: any = {};
-			sortObj[sort_by as string] = sort_order === "desc" ? -1 : 1;
+			interface SortObject {
+				[key: string]: 1 | -1;
+			}
+
+			const sortObj: SortObject = {};
+			const sortField = sort_by as string;
+			sortObj[sortField] = sort_order === "desc" ? -1 : 1;
 
 			const services = await Service.find(filter)
-				.select("name description category is_available")
+				.select(
+					"name description category price old_price duration_minutes is_available service_gallery"
+				)
 				.sort(sortObj)
-				.lean();
+				.lean<ServiceLean[]>();
 
 			const servicesResponse: ServiceListResponse[] = services.map(
-				({ _id: id, ...service }) => ({
-					id: id.toString(),
-					...service,
-				})
+				convertToListResponse
 			);
 
 			res.status(200).json({
@@ -86,7 +152,11 @@ router.get(
 	}
 );
 
-// GET /api/services/categories (Public - get all categories with service counts)
+/**
+ * GET /services/categories
+ * Public - get all categories with service counts
+ * Query params: available_only
+ */
 router.get(
 	"/categories",
 	async (
@@ -97,31 +167,42 @@ router.get(
 		try {
 			const { available_only = "true" } = req.query;
 
-			const filter: any = {};
+			interface CategoryFilter {
+				is_available?: boolean;
+				is_active?: boolean;
+				deleted_at: null;
+			}
+
+			const filter: CategoryFilter = {
+				deleted_at: null,
+			};
+
 			if (available_only === "true") {
 				filter.is_available = true;
 				filter.is_active = true;
 			}
 
 			const services = await Service.find(filter)
-				.select("name description category is_available")
+				.select(
+					"name description category price old_price duration_minutes is_available service_gallery"
+				)
 				.sort({ category: 1, name: 1 })
-				.lean();
+				.lean<ServiceLean[]>();
 
 			// Group services by category
 			const categoryMap = new Map<string, ServiceListResponse[]>();
 
 			services.forEach((service) => {
-				const { _id: id, ...serviceData } = service;
-				const serviceResponse: ServiceListResponse = {
-					id: id.toString(),
-					...serviceData,
-				};
+				const serviceResponse: ServiceListResponse =
+					convertToListResponse(service);
 
 				if (!categoryMap.has(service.category)) {
 					categoryMap.set(service.category, []);
 				}
-				categoryMap.get(service.category)!.push(serviceResponse);
+				const categoryServices = categoryMap.get(service.category);
+				if (categoryServices) {
+					categoryServices.push(serviceResponse);
+				}
 			});
 
 			const categorySummaries: CategorySummary[] = Array.from(
@@ -146,7 +227,11 @@ router.get(
 	}
 );
 
-// GET /api/services/category/:category (Public - get services by category for clients)
+/**
+ * GET /services/category/:category
+ * Public - get services by category for clients
+ * Query params: available_only
+ */
 router.get(
 	"/category/:category",
 	async (
@@ -170,7 +255,17 @@ router.get(
 				throw customError(400, "Invalid category");
 			}
 
-			const filter: any = { category };
+			interface CategoryParamFilter {
+				category: string;
+				is_available?: boolean;
+				is_active?: boolean;
+				deleted_at: null;
+			}
+
+			const filter: CategoryParamFilter = {
+				category,
+				deleted_at: null,
+			};
 
 			if (available_only === "true") {
 				filter.is_available = true;
@@ -178,15 +273,14 @@ router.get(
 			}
 
 			const services = await Service.find(filter)
-				.select("name description category is_available")
+				.select(
+					"name description category price old_price duration_minutes is_available service_gallery"
+				)
 				.sort({ name: 1 })
-				.lean();
+				.lean<ServiceLean[]>();
 
 			const servicesResponse: ServiceListResponse[] = services.map(
-				({ _id: id, ...service }) => ({
-					id: id.toString(),
-					...service,
-				})
+				convertToListResponse
 			);
 
 			res.status(200).json({
@@ -201,7 +295,11 @@ router.get(
 	}
 );
 
-// GET /api/services/popular (Public - popular services based on category priorities)
+/**
+ * GET /services/popular
+ * Public - popular services based on category priorities
+ * TODO: Base it on booking stats from Transaction model
+ */
 router.get(
 	"/popular",
 	async (
@@ -219,20 +317,20 @@ router.get(
 				category: { $in: popularCategories },
 				is_available: true,
 				is_active: true,
+				deleted_at: null,
 			})
-				.select("name description category is_available")
+				.select(
+					"name description category price old_price duration_minutes is_available service_gallery"
+				)
 				.sort({
 					category: 1, // Photography first, then Beauty, then Styling
 					name: 1,
 				})
 				.limit(8)
-				.lean();
+				.lean<ServiceLean[]>();
 
 			const servicesResponse: ServiceListResponse[] = services.map(
-				({ _id: id, ...service }) => ({
-					id: id.toString(),
-					...service,
-				})
+				convertToListResponse
 			);
 
 			res.status(200).json({
@@ -247,7 +345,10 @@ router.get(
 	}
 );
 
-// GET /api/services/essential (Public - essential services for basic photoshoots)
+/**
+ * GET /services/essential
+ * Public - essential services for basic photoshoots
+ */
 router.get(
 	"/essential",
 	async (
@@ -273,16 +374,16 @@ router.get(
 				})),
 				is_available: true,
 				is_active: true,
+				deleted_at: null,
 			})
-				.select("name description category is_available")
+				.select(
+					"name description category price old_price duration_minutes is_available service_gallery"
+				)
 				.sort({ category: 1, name: 1 })
-				.lean();
+				.lean<ServiceLean[]>();
 
 			const servicesResponse: ServiceListResponse[] = services.map(
-				({ _id: id, ...service }) => ({
-					id: id.toString(),
-					...service,
-				})
+				convertToListResponse
 			);
 
 			res.status(200).json({
@@ -297,7 +398,11 @@ router.get(
 	}
 );
 
-// GET /api/services/search (Public - search services by name or description)
+/**
+ * GET /services/search
+ * Public - search services by name or description
+ * Query params: q (query), category, available_only
+ */
 router.get(
 	"/search",
 	async (
@@ -315,11 +420,23 @@ router.get(
 				);
 			}
 
-			const filter: any = {
+			interface SearchFilter {
+				$or: Array<{
+					name?: { $regex: string; $options: string };
+					description?: { $regex: string; $options: string };
+				}>;
+				is_available?: boolean;
+				is_active?: boolean;
+				deleted_at: null;
+				category?: string;
+			}
+
+			const filter: SearchFilter = {
 				$or: [
 					{ name: { $regex: query.trim(), $options: "i" } },
 					{ description: { $regex: query.trim(), $options: "i" } },
 				],
+				deleted_at: null,
 			};
 
 			if (available_only === "true") {
@@ -328,20 +445,19 @@ router.get(
 			}
 
 			if (category && category !== "all") {
-				filter.category = category;
+				filter.category = category as string;
 			}
 
 			const services = await Service.find(filter)
-				.select("name description category is_available")
+				.select(
+					"name description category price old_price duration_minutes is_available service_gallery"
+				)
 				.sort({ name: 1 })
 				.limit(20) // Limit search results
-				.lean();
+				.lean<ServiceLean[]>();
 
 			const servicesResponse: ServiceListResponse[] = services.map(
-				({ _id: id, ...service }) => ({
-					id: id.toString(),
-					...service,
-				})
+				convertToListResponse
 			);
 
 			res.status(200).json({
@@ -356,19 +472,17 @@ router.get(
 	}
 );
 
-// GET /api/services/recommendations (Public - service recommendations based on category mix)
-// TODO: Improve to look on the newest or the most popular or the most sales it have accumulated
-// TODO: based it on TRANSACTION model
+/**
+ * GET /services/recommendations
+ * Public - service recommendations based on category mix
+ * TODO: Improve to look at the newest or most popular or most sales accumulated
+ * TODO: Base it on TRANSACTION model
+ */
 router.get(
 	"/recommendations",
 	async (
 		req: Request,
-		res: TypedResponse<{
-			photography: ServiceListResponse[];
-			beauty: ServiceListResponse[];
-			styling: ServiceListResponse[];
-			equipment: ServiceListResponse[];
-		}>,
+		res: TypedResponse<RecommendationsResponse>,
 		next: NextFunction
 	) => {
 		try {
@@ -378,50 +492,59 @@ router.get(
 					category: "Photography",
 					is_available: true,
 					is_active: true,
+					deleted_at: null,
 				})
-					.select("name description category is_available")
+					.select(
+						"name description category price old_price duration_minutes is_available service_gallery"
+					)
 					.sort({ name: 1 })
 					.limit(3)
-					.lean(),
+					.lean<ServiceLean[]>(),
 
 				Service.find({
 					category: "Beauty",
 					is_available: true,
 					is_active: true,
+					deleted_at: null,
 				})
-					.select("name description category is_available")
+					.select(
+						"name description category price old_price duration_minutes is_available service_gallery"
+					)
 					.sort({ name: 1 })
 					.limit(3)
-					.lean(),
+					.lean<ServiceLean[]>(),
 
 				Service.find({
 					category: "Styling",
 					is_available: true,
 					is_active: true,
+					deleted_at: null,
 				})
-					.select("name description category is_available")
+					.select(
+						"name description category price old_price duration_minutes is_available service_gallery"
+					)
 					.sort({ name: 1 })
 					.limit(2)
-					.lean(),
+					.lean<ServiceLean[]>(),
 
 				Service.find({
 					category: "Equipment",
 					is_available: true,
 					is_active: true,
+					deleted_at: null,
 				})
-					.select("name description category is_available")
+					.select(
+						"name description category price old_price duration_minutes is_available service_gallery"
+					)
 					.sort({ name: 1 })
 					.limit(2)
-					.lean(),
+					.lean<ServiceLean[]>(),
 			]);
 
-			const mapServices = (services: any[]): ServiceListResponse[] =>
-				services.map(({ _id: id, ...service }) => ({
-					id: id.toString(),
-					...service,
-				}));
+			const mapServices = (services: ServiceLean[]): ServiceListResponse[] =>
+				services.map(convertToListResponse);
 
-			const recommendations = {
+			const recommendations: RecommendationsResponse = {
 				photography: mapServices(photography),
 				beauty: mapServices(beauty),
 				styling: mapServices(styling),

@@ -7,11 +7,14 @@ import {
 	authenticateAmiUserToken,
 } from "../../middleware/authMiddleware";
 import { customError } from "../../middleware/errorHandler";
+import { renderCustomerWelcomeEmail } from "../../utils/generateEmailTemplate";
+import { sendEmail } from "../../utils/emailSender";
 
 const router = Router();
 
 type CustomerResponse = MetaData & {
-	id: string;
+	_id: string;
+	customer_no: string;
 	email: string;
 	first_name: string;
 	last_name: string;
@@ -45,7 +48,7 @@ router.get(
 
 			const customerResponse: CustomerResponse[] = customers.map(
 				({ _id: id, ...customer }) => ({
-					id: id.toString(),
+					_id: id.toString(),
 					...customer,
 				})
 			);
@@ -81,7 +84,7 @@ router.get(
 			const { _id, ...customerWithoutObjectId } = customer;
 
 			const customerResponse: CustomerResponse = {
-				id: _id.toString(),
+				_id: _id.toString(),
 				...customerWithoutObjectId,
 			};
 
@@ -149,13 +152,48 @@ router.post(
 				updated_by: new Types.ObjectId(userId),
 			});
 
-			await customer.save();
+			await customer.save(); // customer_no is auto-generated in pre-save hook
 
 			const customerResponse: CustomerCreateResponse = {
-				id: String(customer._id),
-				...customer.toObject(),
+				_id: String(customer._id),
+				customer_no: customer.customer_no,
+				email: customer.email,
+				first_name: customer.first_name,
+				last_name: customer.last_name,
+				mobile_number: customer.mobile_number,
+				gender: customer.gender,
+				address: customer.address,
+				barangay: customer.barangay,
+				city: customer.city,
+				province: customer.province,
+				postal_code: customer.postal_code,
+				country: customer.country,
+				birth_date: customer.birth_date,
+				profile_image: customer.profile_image,
+				is_active: customer.is_active,
+				created_at: customer.created_at,
+				updated_at: customer.updated_at,
 				temporary_password: tempPassword,
 			};
+
+			// After saving customer
+			const emailHtml = renderCustomerWelcomeEmail({
+				firstName: customer.first_name,
+				lastName: customer.last_name,
+				customerNo: customer.customer_no,
+				email: customer.email,
+				password: tempPassword,
+				loginUrl: "https://localhost.com/auth/login",
+				companyName: "Your Smile Matters",
+				supportEmail: "ysmphotographysupport@gmail.com",
+			});
+
+			// Send email with your email service
+			await sendEmail({
+				to: customer.email,
+				subject: "Welcome to Your Smile Matters! 🎉",
+				html: emailHtml,
+			});
 
 			res.status(201).json({
 				status: 201,
@@ -180,6 +218,7 @@ router.patch(
 		try {
 			const { id } = req.params;
 			const {
+				customer_no,
 				email,
 				first_name,
 				last_name,
@@ -225,9 +264,28 @@ router.patch(
 
 			await customer.save();
 
+			const customerObject = customer.toObject();
 			const customerResponse: CustomerResponse = {
-				id: String(customer._id),
-				...customer.toObject(),
+				_id: String(customerObject._id),
+				customer_no: customerObject.customer_no,
+				email: customerObject.email,
+				first_name: customerObject.first_name,
+				last_name: customerObject.last_name,
+				mobile_number: customerObject.mobile_number,
+				gender: customerObject.gender,
+				address: customerObject.address,
+				barangay: customerObject.barangay,
+				city: customerObject.city,
+				province: customerObject.province,
+				postal_code: customerObject.postal_code,
+				country: customerObject.country,
+				birth_date: customerObject.birth_date,
+				profile_image: customerObject.profile_image,
+				is_active: customerObject.is_active,
+				created_at: customerObject.created_at,
+				updated_at: customerObject.updated_at,
+				created_by: customerObject.created_by,
+				updated_by: customerObject.updated_by,
 			};
 
 			res.status(200).json({

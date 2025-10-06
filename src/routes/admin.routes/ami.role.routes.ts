@@ -7,7 +7,18 @@ const router = Router();
 router.get("/", async (req, res, next) => {
 	try {
 		const roles = await Role.find();
-		res.json({ status: "Success", data: roles });
+
+		const parsedRoles = roles.map((role) => {
+			return {
+				_id: role._id,
+				name: role.name,
+				description: role.description,
+				permissions: role.permissions,
+				is_active: role.is_active,
+			};
+		});
+
+		res.json({ status: "Success", data: parsedRoles });
 	} catch (error) {
 		next(error);
 	}

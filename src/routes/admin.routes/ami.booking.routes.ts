@@ -1,188 +1,210 @@
 import { Router, Request, NextFunction } from "express";
-import { Booking, BookingModel, BookingStatusEnum } from "../../models/Booking";
-import { Package, PackageModel } from "../../models/Package";
+import { Booking, BookingStatus, PaymentMethod } from "../../models/Booking";
+import { Package } from "../../models/Package";
 import { Service } from "../../models/Service";
 import mongoose, { Types } from "mongoose";
-import { MetaData, TypedResponse } from "../../types/base.types";
+import { TypedResponse } from "../../types/base.types";
 import {
 	AuthenticatedRequest,
 	authenticateAmiUserToken,
 } from "../../middleware/authMiddleware";
 import { customError } from "../../middleware/errorHandler";
-import { CustomerModel } from "../../models/Customer";
-import { Promo, PromoModel } from "../../models/Promo";
-import { generateBookingReference } from "../../utils/generateRandomValues";
+import { Promo } from "../../models/Promo";
 
 const router = Router();
 
-type BookingResponse = MetaData & {
-	id: string;
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
+
+// Populated entity types
+interface PopulatedCustomer {
+	_id: Types.ObjectId;
+	first_name: string;
+	last_name: string;
+	email: string;
+	phone_number?: string;
+}
+
+interface PopulatedPackage {
+	_id: Types.ObjectId;
+	package_name: string;
+	package_price: number;
+	description?: string;
+	is_available: boolean;
+}
+
+interface PopulatedPhotographer {
+	_id: Types.ObjectId;
+	first_name: string;
+	last_name: string;
+	email: string;
+	specialization?: string;
+}
+
+interface PopulatedPromo {
+	_id: Types.ObjectId;
+	promo_code: string;
+	discount_type: string;
+	discount_value: number;
+}
+
+interface PopulatedService {
+	_id: Types.ObjectId;
+	service_name: string;
+	category: string;
+	price: number;
+	duration_minutes?: number;
+}
+
+interface PopulatedBookingService {
+	service_id: PopulatedService;
+	quantity: number;
+	price_per_unit: number;
+	total_price: number;
+	duration_minutes?: number | null;
+	_id: Types.ObjectId;
+}
+
+// Full populated booking type
+interface LeanPopulatedBooking {
+	_id: Types.ObjectId;
 	booking_reference: string;
-	customer_id: string;
-	package: {
-		id: string;
-		name: string;
-		price: number;
-		looks: number;
-		included_services: {
-			id: string;
-			name: string;
-			category: string;
-			is_available: boolean;
-			is_active: boolean;
-		}[];
-	};
-	promo?: {
-		id: string;
-		promo_code: string;
-		discount_type: string;
-		discount_value: number;
-	} | null;
+	customer_id: PopulatedCustomer;
+	package_id?: PopulatedPackage | null;
+	photographer_id?: PopulatedPhotographer | null;
+	promo_id?: PopulatedPromo | null;
+	services: PopulatedBookingService[];
+	is_customized: boolean;
+	customization_notes?: string | null;
 	booking_date: Date;
 	start_time: string;
-	end_time?: string | null;
+	end_time: string;
+	session_duration_minutes: number;
 	location: string;
 	theme?: string | null;
 	special_requests?: string | null;
-	status: string;
+	status: BookingStatus;
 	total_amount: number;
 	discount_amount: number;
 	final_amount: number;
+	amount_paid: number;
+	method_of_payment?: PaymentMethod | null;
+	payment_images: string[];
+	is_partially_paid: boolean;
+	is_payment_complete: boolean;
 	booking_confirmed_at?: Date | null;
+	photographer_assigned_at?: Date | null;
 	booking_completed_at?: Date | null;
 	cancelled_reason?: string | null;
 	rescheduled_from?: Date | null;
-};
+	photographer_notes?: string | null;
+	client_rating?: number | null;
+	photographer_rating?: number | null;
+	is_active: boolean;
+	created_by: Types.ObjectId;
+	updated_by: Types.ObjectId;
+	deleted_by?: Types.ObjectId | null;
+	retrieved_by?: Types.ObjectId | null;
+	deleted_at?: Date | null;
+	retrieved_at?: Date | null;
+	created_at: Date;
+	updated_at: Date;
+}
 
-type BookingListResponse = {
+// Response types
+interface BookingListItem {
 	id: string;
 	booking_reference: string;
 	customer_name: string;
-	package_name: string;
+	services_summary: string;
 	booking_date: Date;
 	start_time: string;
 	location: string;
-	status: string;
+	status: BookingStatus;
 	final_amount: number;
-};
+	photographer_name?: string | null;
+}
 
-type AvailabilityResponse = {
-	date: string;
-	available_slots: string[];
-	booked_slots: string[];
+interface PriceCalculationResponse {
+	total_amount: number;
+	discount_amount: number;
+	final_amount: number;
+	promo_applied?: boolean;
+}
+
+interface BookingAnalyticsResponse {
 	total_bookings: number;
-};
+	pending_bookings: number;
+	confirmed_bookings: number;
+	assigned_bookings: number;
+	ongoing_bookings: number;
+	completed_bookings: number;
+	cancelled_bookings: number;
+	rescheduled_bookings: number;
+	total_revenue: number;
+	today_bookings: number;
+	upcoming_bookings: number;
+}
 
-// TODO: ADD THE REMAINING ROUTE TO POSTMAN
-// GET /api/bookings/availability/:date (Check availability for a specific date)
-router.get(
-	"/availability/:date",
-	async (
-		req: Request,
-		res: TypedResponse<AvailabilityResponse>,
-		next: NextFunction
-	) => {
-		try {
-			const { date } = req.params;
+// Request body types
+interface CalculatePriceRequest {
+	services: {
+		service_id: string;
+		quantity: number;
+	}[];
+	promo_code?: string;
+	booking_date?: string;
+}
 
-			// Validate date format
-			const bookingDate = new Date(date);
-			if (isNaN(bookingDate.getTime())) {
-				throw customError(400, "Invalid date format");
-			}
+interface CancelBookingRequest {
+	cancelled_reason: string;
+}
 
-			// Check if date is in the future
-			const today = new Date();
-			today.setHours(0, 0, 0, 0);
-			if (bookingDate < today) {
-				throw customError(400, "Cannot check availability for past dates");
-			}
+interface RescheduleBookingRequest {
+	new_booking_date: string;
+	new_start_time: string;
+	new_end_time?: string;
+}
 
-			// Get all bookings for this date
-			const existingBookings = await Booking.find({
-				booking_date: {
-					$gte: new Date(bookingDate.setHours(0, 0, 0, 0)),
-					$lt: new Date(bookingDate.setHours(23, 59, 59, 999)),
-				},
-				status: { $nin: ["Cancelled"] }, // Exclude cancelled bookings
-				is_active: true,
-			}).select("start_time end_time");
+// ============================================================================
+// ROUTES
+// ============================================================================
 
-			// Define available time slots (business hours: 8 AM - 8 PM)
-			const businessSlots = [
-				"08:00",
-				"09:00",
-				"10:00",
-				"11:00",
-				"12:00",
-				"13:00",
-				"14:00",
-				"15:00",
-				"16:00",
-				"17:00",
-				"18:00",
-				"19:00",
-				"20:00",
-			];
-
-			const bookedSlots = existingBookings.map((booking) => booking.start_time);
-			const availableSlots = businessSlots.filter(
-				(slot) => !bookedSlots.includes(slot)
-			);
-
-			res.status(200).json({
-				status: 200,
-				message: "Availability checked successfully!",
-				data: {
-					date: date,
-					available_slots: availableSlots,
-					booked_slots: bookedSlots,
-					total_bookings: existingBookings.length,
-				},
-			});
-		} catch (error) {
-			console.error("Error checking availability:", error);
-			next(error);
-		}
-	}
-);
-
-// TODO: ADD THE REMAINING ROUTE TO POSTMAN
-// RECHECK: WORK ON PROMO THEN TEST AGAIN
-// POST /api/bookings/calculate-price (Calculate booking price with promo)
+// POST /api/bookings/calculate-price
 router.post(
 	"/calculate-price",
 	async (
-		req: Request,
-		res: TypedResponse<{
-			package_price: number;
-			discount_amount: number;
-			final_amount: number;
-			promo_applied?: boolean;
-		}>,
+		req: Request<{}, {}, CalculatePriceRequest>,
+		res: TypedResponse<PriceCalculationResponse>,
 		next: NextFunction
 	) => {
 		try {
-			const { package_id, promo_code, booking_date } = req.body;
+			const { services, promo_code, booking_date } = req.body;
 
-			// Validate package
-			if (!mongoose.Types.ObjectId.isValid(package_id)) {
-				throw customError(400, "Invalid package ID format");
+			if (!services || !Array.isArray(services) || services.length === 0) {
+				throw customError(400, "Services array is required");
 			}
 
-			const selectedPackage = await Package.findById(package_id).populate(
-				"included_services"
-			);
+			// Calculate total from services
+			let totalAmount = 0;
 
-			if (!selectedPackage) {
-				throw customError(404, "Package not found");
+			for (const serviceItem of services) {
+				if (!mongoose.Types.ObjectId.isValid(serviceItem.service_id)) {
+					throw customError(400, "Invalid service ID format");
+				}
+
+				const service = await Service.findById(serviceItem.service_id);
+				if (!service) {
+					throw customError(
+						404,
+						`Service not found: ${serviceItem.service_id}`
+					);
+				}
+
+				totalAmount += service.price * serviceItem.quantity;
 			}
 
-			if (!selectedPackage.is_available || !selectedPackage.is_active) {
-				throw customError(400, "Selected package is not available");
-			}
-
-			let totalAmount = selectedPackage.price;
 			let discountAmount = 0;
 			let promoApplied = false;
 
@@ -195,7 +217,7 @@ router.post(
 
 				if (promo) {
 					const now = new Date();
-					const bookingDateTime = new Date(booking_date);
+					const bookingDateTime = booking_date ? new Date(booking_date) : now;
 
 					// Check if promo is currently valid
 					if (promo.valid_from <= now && promo.valid_until >= now) {
@@ -255,277 +277,32 @@ router.post(
 				status: 200,
 				message: "Price calculated successfully!",
 				data: {
-					package_price: totalAmount,
+					total_amount: totalAmount,
 					discount_amount: discountAmount,
 					final_amount: finalAmount,
 					promo_applied: promoApplied,
 				},
 			});
 		} catch (error) {
-			console.error("Error calculating price:", error);
 			next(error);
 		}
 	}
 );
 
-// POST /api/bookings (Create new booking)
-router.post(
-	"/",
-	authenticateAmiUserToken,
-	async (
-		req: AuthenticatedRequest,
-		res: TypedResponse<BookingResponse>,
-		next: NextFunction
-	) => {
-		try {
-			const {
-				customer_id,
-				package_id,
-				promo_code,
-				booking_date,
-				start_time,
-				end_time,
-				location,
-				theme,
-				special_requests,
-			} = req.body;
-
-			const userId = req.user?._id;
-			if (!userId) {
-				throw customError(400, "No user id found. Please login again.");
-			}
-
-			// Validate required fields
-			if (
-				!customer_id ||
-				!package_id ||
-				!booking_date ||
-				!start_time ||
-				!location
-			) {
-				throw customError(
-					400,
-					"Customer, package, booking date, start time, and location are required"
-				);
-			}
-
-			// Validate ObjectIds
-			if (!mongoose.Types.ObjectId.isValid(customer_id)) {
-				throw customError(400, "Invalid customer ID format");
-			}
-			if (!mongoose.Types.ObjectId.isValid(package_id)) {
-				throw customError(400, "Invalid package ID format");
-			}
-
-			// Validate time format
-			const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-			if (!timeRegex.test(start_time)) {
-				throw customError(400, "Invalid start time format (HH:MM)");
-			}
-			if (end_time && !timeRegex.test(end_time)) {
-				throw customError(400, "Invalid end time format (HH:MM)");
-			}
-
-			// Validate booking date is in the future
-			const bookingDateTime = new Date(booking_date);
-			const now = new Date();
-			if (bookingDateTime <= now) {
-				throw customError(400, "Booking date must be in the future");
-			}
-
-			// Check if slot is available
-			const existingBooking = await Booking.findOne({
-				booking_date: {
-					$gte: new Date(bookingDateTime.setHours(0, 0, 0, 0)),
-					$lt: new Date(bookingDateTime.setHours(23, 59, 59, 999)),
-				},
-				start_time: start_time,
-				status: { $nin: ["Cancelled"] },
-				is_active: true,
-			});
-
-			if (existingBooking) {
-				throw customError(400, "This time slot is already booked");
-			}
-
-			// Validate customer exists
-			const CustomerModel = mongoose.model("Customer");
-			const customer = await CustomerModel.findById(customer_id);
-			if (!customer) {
-				throw customError(404, "Customer not found");
-			}
-
-			// Validate package and get price
-			const selectedPackage = await Package.findById(package_id).populate<{
-				included_service: {
-					id: string;
-					name: string;
-					category: string;
-					is_active: boolean;
-					is_available: boolean;
-				};
-			}>({
-				path: "included_services",
-				select: "name category is_available is_active",
-			});
-
-			if (!selectedPackage) {
-				throw customError(404, "Package not found");
-			}
-
-			if (!selectedPackage.is_available || !selectedPackage.is_active) {
-				throw customError(400, "Selected package is not available");
-			}
-
-			// Check if all services in package are available
-			const unavailableServices = (
-				selectedPackage.included_services as unknown as {
-					id: string;
-					name: string;
-					category: string;
-					is_active: boolean;
-					is_available: boolean;
-				}[]
-			).filter((service) => !service.is_available || !service.is_active);
-
-			if (unavailableServices.length > 0) {
-				throw customError(
-					400,
-					"Some services in this package are currently unavailable"
-				);
-			}
-
-			let promoId = null;
-			if (promo_code) {
-				const promo = await Promo.findOne({
-					promo_code: promo_code.toUpperCase(),
-					is_active: true,
-				});
-
-				if (promo) {
-					const currentDate = new Date();
-					if (
-						promo.valid_from <= currentDate &&
-						promo.valid_until >= currentDate
-					) {
-						// Additional validation will be done in the pre-save middleware
-						promoId = promo._id;
-					}
-				}
-			}
-
-			// Create booking
-			const booking = new Booking({
-				booking_reference: generateBookingReference(),
-				customer_id: new Types.ObjectId(customer_id),
-				package_id: new Types.ObjectId(package_id),
-				promo_id: promoId,
-				booking_date: bookingDateTime,
-				start_time,
-				end_time: end_time || null,
-				location: location.trim(),
-				theme: theme?.trim() || null,
-				special_requests: special_requests?.trim() || null,
-				status: "Pending",
-				total_amount: selectedPackage.price,
-				discount_amount: 0, // Will be calculated in pre-save middleware
-				final_amount: selectedPackage.price, // Will be calculated in pre-save middleware
-				is_active: true,
-				created_by: new Types.ObjectId(userId),
-				updated_by: new Types.ObjectId(userId),
-			});
-
-			await booking.save();
-
-			// Populate for response
-			const populatedBooking = await Booking.findById(booking._id)
-				.populate<{ package_id: PackageModel }>({
-					path: "package_id",
-					select: "name price looks",
-					populate: {
-						path: "included_services",
-						select: "name category is_available is_active",
-					},
-				})
-				.populate<{ promo_id: PromoModel }>({
-					path: "promo_id",
-					select: "promo_code discount_type discount_value",
-				})
-				.lean();
-
-			const bookingResponse: BookingResponse = {
-				id: String(populatedBooking!._id),
-				booking_reference: populatedBooking!.booking_reference,
-				customer_id: String(populatedBooking!.customer_id),
-				package: {
-					id: String(populatedBooking!.package_id._id),
-					name: populatedBooking!.package_id.name,
-					price: populatedBooking!.package_id.price,
-					looks: populatedBooking!.package_id.looks,
-					included_services: populatedBooking!.package_id.included_services.map(
-						(service: any) => ({
-							id: String(service._id),
-							name: service.name,
-							category: service.category,
-							is_active: service.is_active,
-							is_available: service.is_available,
-						})
-					),
-				},
-				promo: populatedBooking!.promo_id
-					? {
-							id: String(populatedBooking!.promo_id._id),
-							promo_code: populatedBooking!.promo_id.promo_code,
-							discount_type: populatedBooking!.promo_id.discount_type,
-							discount_value: populatedBooking!.promo_id.discount_value,
-					  }
-					: null,
-				booking_date: populatedBooking!.booking_date,
-				start_time: populatedBooking!.start_time,
-				end_time: populatedBooking!.end_time,
-				location: populatedBooking!.location,
-				theme: populatedBooking!.theme,
-				special_requests: populatedBooking!.special_requests,
-				status: populatedBooking!.status,
-				total_amount: populatedBooking!.total_amount,
-				discount_amount: populatedBooking!.discount_amount,
-				final_amount: populatedBooking!.final_amount,
-				booking_confirmed_at: populatedBooking!.booking_confirmed_at,
-				booking_completed_at: populatedBooking!.booking_completed_at,
-				cancelled_reason: populatedBooking!.cancelled_reason,
-				rescheduled_from: populatedBooking!.rescheduled_from,
-				created_at: populatedBooking!.created_at,
-				updated_at: populatedBooking!.updated_at,
-				is_active: populatedBooking!.is_active,
-				created_by: populatedBooking!.created_by,
-				updated_by: populatedBooking!.updated_by,
-			};
-
-			res.status(201).json({
-				status: 201,
-				message: "Booking created successfully!",
-				data: bookingResponse,
-			});
-		} catch (error) {
-			next(error);
-		}
-	}
-);
-
-// GET /api/bookings (Admin view - all bookings)
+// GET /api/bookings
 router.get(
 	"/",
 	authenticateAmiUserToken,
 	async (
 		req: Request,
-		res: TypedResponse<BookingListResponse[]>,
+		res: TypedResponse<BookingListItem[]>,
 		next: NextFunction
 	) => {
 		try {
 			const {
 				status,
 				customer_id,
-				package_id,
+				photographer_id,
 				date_from,
 				date_to,
 				search,
@@ -535,7 +312,6 @@ router.get(
 				limit = 20,
 			} = req.query;
 
-			// Build filter
 			const filter: any = { is_active: true };
 
 			if (status && status !== "all") {
@@ -543,11 +319,17 @@ router.get(
 			}
 
 			if (customer_id) {
+				if (!mongoose.Types.ObjectId.isValid(customer_id as string)) {
+					throw customError(400, "Invalid customer ID format");
+				}
 				filter.customer_id = customer_id;
 			}
 
-			if (package_id) {
-				filter.package_id = package_id;
+			if (photographer_id) {
+				if (!mongoose.Types.ObjectId.isValid(photographer_id as string)) {
+					throw customError(400, "Invalid photographer ID format");
+				}
+				filter.photographer_id = photographer_id;
 			}
 
 			if (date_from || date_to) {
@@ -563,40 +345,49 @@ router.get(
 				];
 			}
 
-			// Build sort
 			const sortObj: any = {};
 			sortObj[sort_by as string] = sort_order === "desc" ? -1 : 1;
 
-			// Pagination
 			const skip = (Number(page) - 1) * Number(limit);
 
 			const bookings = await Booking.find(filter)
-				.populate<{ customer_id: CustomerModel }>({
+				.populate<{ customer_id: PopulatedCustomer }>({
 					path: "customer_id",
 					select: "first_name last_name",
 				})
-				.populate<{ package_id: PackageModel }>({
-					path: "package_id",
-					select: "name",
+				.populate<{ photographer_id: PopulatedPhotographer }>({
+					path: "photographer_id",
+					select: "first_name last_name",
+				})
+				.populate<{ services: PopulatedBookingService[] }>({
+					path: "services.service_id",
+					select: "service_name",
 				})
 				.sort(sortObj)
 				.skip(skip)
 				.limit(Number(limit))
-				.lean();
+				.lean<LeanPopulatedBooking[]>();
 
-			const bookingsResponse: BookingListResponse[] = bookings.map(
-				(booking) => ({
+			const bookingsResponse: BookingListItem[] = bookings.map((booking) => {
+				const serviceNames = booking.services
+					.map((s) => s.service_id.service_name)
+					.join(", ");
+
+				return {
 					id: String(booking._id),
 					booking_reference: booking.booking_reference,
 					customer_name: `${booking.customer_id.first_name} ${booking.customer_id.last_name}`,
-					package_name: booking.package_id.name,
+					services_summary: serviceNames || "No services",
 					booking_date: booking.booking_date,
 					start_time: booking.start_time,
 					location: booking.location,
 					status: booking.status,
 					final_amount: booking.final_amount,
-				})
-			);
+					photographer_name: booking.photographer_id
+						? `${booking.photographer_id.first_name} ${booking.photographer_id.last_name}`
+						: null,
+				};
+			});
 
 			res.status(200).json({
 				status: 200,
@@ -604,19 +395,18 @@ router.get(
 				data: bookingsResponse,
 			});
 		} catch (error) {
-			console.error("Error fetching bookings:", error);
 			next(error);
 		}
 	}
 );
 
-// GET /api/bookings/:id (Get booking details)
+// GET /api/bookings/:id
 router.get(
 	"/:id",
 	authenticateAmiUserToken,
 	async (
-		req: Request,
-		res: TypedResponse<BookingResponse>,
+		req: AuthenticatedRequest,
+		res: TypedResponse<LeanPopulatedBooking>,
 		next: NextFunction
 	) => {
 		try {
@@ -627,91 +417,50 @@ router.get(
 			}
 
 			const booking = await Booking.findById(id)
-				.populate<any>({
-					path: "package_id",
-					select: "name price looks",
-					populate: {
-						path: "included_services",
-						select: "name category is_available is_active",
-					},
+				.populate<{ customer_id: PopulatedCustomer }>({
+					path: "customer_id",
+					select: "first_name last_name email phone_number",
 				})
-				.populate<{ promo_id: PromoModel }>({
+				.populate<{ package_id: PopulatedPackage }>({
+					path: "package_id",
+					select: "package_name package_price description is_available",
+				})
+				.populate<{ photographer_id: PopulatedPhotographer }>({
+					path: "photographer_id",
+					select: "first_name last_name email specialization",
+				})
+				.populate<{ promo_id: PopulatedPromo }>({
 					path: "promo_id",
 					select: "promo_code discount_type discount_value",
-				});
+				})
+				.populate<{ services: PopulatedBookingService[] }>({
+					path: "services.service_id",
+					select: "service_name category price duration_minutes",
+				})
+				.lean<LeanPopulatedBooking>();
 
 			if (!booking) {
 				throw customError(404, "Booking not found");
 			}
 
-			const bookingResponse: BookingResponse = {
-				id: String(booking._id),
-				booking_reference: booking.booking_reference,
-				customer_id: String(booking.customer_id),
-				package: {
-					id: String(booking.package_id._id),
-					name: booking.package_id.name,
-					price: booking.package_id.price,
-					looks: booking.package_id.looks,
-					included_services: booking.package_id.included_services.map(
-						(service: any) => ({
-							id: String(service._id),
-							name: service.name,
-							category: service.category,
-							is_available: service.is_available,
-							is_active: service.is_active,
-						})
-					),
-				},
-
-				promo: booking.promo_id
-					? {
-							id: String(booking.promo_id._id),
-							promo_code: booking.promo_id.promo_code,
-							discount_type: booking.promo_id.discount_type,
-							discount_value: booking.promo_id.discount_value,
-					  }
-					: null,
-				booking_date: booking.booking_date,
-				start_time: booking.start_time,
-				end_time: booking.end_time,
-				location: booking.location,
-				theme: booking.theme,
-				special_requests: booking.special_requests,
-				status: booking.status,
-				total_amount: booking.total_amount,
-				discount_amount: booking.discount_amount,
-				final_amount: booking.final_amount,
-				booking_confirmed_at: booking.booking_confirmed_at,
-				booking_completed_at: booking.booking_completed_at,
-				cancelled_reason: booking.cancelled_reason,
-				rescheduled_from: booking.rescheduled_from,
-				created_at: booking.created_at,
-				updated_at: booking.updated_at,
-				is_active: booking.is_active,
-				created_by: booking.created_by,
-				updated_by: booking.updated_by,
-			};
-
 			res.status(200).json({
 				status: 200,
 				message: "Booking fetched successfully!",
-				data: bookingResponse,
+				data: booking,
 			});
 		} catch (error) {
-			console.error("Error fetching booking:", error);
 			next(error);
 		}
 	}
 );
 
-// PATCH /api/bookings/:id/confirm (Confirm booking)
+// PATCH /api/bookings/:id/confirm
 router.patch(
 	"/:id/confirm",
 	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
-		res: TypedResponse<BookingResponse>,
+		res: TypedResponse<LeanPopulatedBooking>,
 		next: NextFunction
 	) => {
 		try {
@@ -739,7 +488,6 @@ router.patch(
 				);
 			}
 
-			// Check if booking date is still in the future
 			if (booking.booking_date <= new Date()) {
 				throw customError(400, "Cannot confirm booking for past dates");
 			}
@@ -747,75 +495,40 @@ router.patch(
 			booking.status = "Confirmed";
 			booking.booking_confirmed_at = new Date();
 			booking.updated_by = new Types.ObjectId(userId);
-			booking.updated_at = new Date();
 
 			await booking.save();
 
-			// Return populated response
 			const populatedBooking = await Booking.findById(booking._id)
-				.populate<any>({
-					path: "package_id",
-					select: "name price looks",
-					populate: {
-						path: "included_services",
-						select: "name category is_available is_active",
-					},
+				.populate<{ customer_id: PopulatedCustomer }>({
+					path: "customer_id",
+					select: "first_name last_name email phone_number",
 				})
-				.populate<{ promo_id: PromoModel }>({
+				.populate<{ package_id: PopulatedPackage }>({
+					path: "package_id",
+					select: "package_name package_price description is_available",
+				})
+				.populate<{ photographer_id: PopulatedPhotographer }>({
+					path: "photographer_id",
+					select: "first_name last_name email specialization",
+				})
+				.populate<{ promo_id: PopulatedPromo }>({
 					path: "promo_id",
 					select: "promo_code discount_type discount_value",
-				});
+				})
+				.populate<{ services: PopulatedBookingService[] }>({
+					path: "services.service_id",
+					select: "service_name category price duration_minutes",
+				})
+				.lean<LeanPopulatedBooking>();
 
-			const bookingResponse: BookingResponse = {
-				id: String(populatedBooking!._id),
-				booking_reference: populatedBooking!.booking_reference,
-				customer_id: String(populatedBooking!.customer_id),
-				package: {
-					id: String(populatedBooking!.package_id._id),
-					name: populatedBooking!.package_id.name,
-					price: populatedBooking!.package_id.price,
-					looks: populatedBooking!.package_id.looks,
-					included_services: populatedBooking!.package_id.included_services.map(
-						(service: any) => ({
-							id: String(service._id),
-							name: service.name,
-							category: service.category,
-						})
-					),
-				},
-				promo: populatedBooking!.promo_id
-					? {
-							id: String(populatedBooking!.promo_id._id),
-							promo_code: populatedBooking!.promo_id.promo_code,
-							discount_type: populatedBooking!.promo_id.discount_type,
-							discount_value: populatedBooking!.promo_id.discount_value,
-					  }
-					: null,
-				booking_date: populatedBooking!.booking_date,
-				start_time: populatedBooking!.start_time,
-				end_time: populatedBooking!.end_time,
-				location: populatedBooking!.location,
-				theme: populatedBooking!.theme,
-				special_requests: populatedBooking!.special_requests,
-				status: populatedBooking!.status,
-				total_amount: populatedBooking!.total_amount,
-				discount_amount: populatedBooking!.discount_amount,
-				final_amount: populatedBooking!.final_amount,
-				booking_confirmed_at: populatedBooking!.booking_confirmed_at,
-				booking_completed_at: populatedBooking!.booking_completed_at,
-				cancelled_reason: populatedBooking!.cancelled_reason,
-				rescheduled_from: populatedBooking!.rescheduled_from,
-				created_at: populatedBooking!.created_at,
-				updated_at: populatedBooking!.updated_at,
-				is_active: populatedBooking!.is_active,
-				created_by: populatedBooking!.created_by,
-				updated_by: populatedBooking!.updated_by,
-			};
+			if (!populatedBooking) {
+				throw customError(500, "Failed to retrieve updated booking");
+			}
 
 			res.status(200).json({
 				status: 200,
 				message: "Booking confirmed successfully!",
-				data: bookingResponse,
+				data: populatedBooking,
 			});
 		} catch (error) {
 			next(error);
@@ -823,7 +536,7 @@ router.patch(
 	}
 );
 
-// PATCH /api/bookings/:id/cancel (Cancel booking)
+// PATCH /api/bookings/:id/cancel
 router.patch(
 	"/:id/cancel",
 	authenticateAmiUserToken,
@@ -868,7 +581,6 @@ router.patch(
 			booking.status = "Cancelled";
 			booking.cancelled_reason = cancelled_reason.trim();
 			booking.updated_by = new Types.ObjectId(userId);
-			booking.updated_at = new Date();
 
 			await booking.save();
 
@@ -883,13 +595,13 @@ router.patch(
 	}
 );
 
-// PATCH /api/bookings/:id/reschedule (Reschedule booking)
+// PATCH /api/bookings/:id/reschedule
 router.patch(
 	"/:id/reschedule",
 	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
-		res: TypedResponse<BookingResponse>,
+		res: TypedResponse<LeanPopulatedBooking>,
 		next: NextFunction
 	) => {
 		try {
@@ -909,7 +621,6 @@ router.patch(
 				throw customError(400, "New booking date and start time are required");
 			}
 
-			// Validate time format
 			const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
 			if (!timeRegex.test(new_start_time)) {
 				throw customError(400, "Invalid start time format (HH:MM)");
@@ -918,7 +629,6 @@ router.patch(
 				throw customError(400, "Invalid end time format (HH:MM)");
 			}
 
-			// Validate new date is in the future
 			const newBookingDateTime = new Date(new_booking_date);
 			if (newBookingDateTime <= new Date()) {
 				throw customError(400, "New booking date must be in the future");
@@ -930,108 +640,79 @@ router.patch(
 				throw customError(404, "Booking not found");
 			}
 
-			if (!["Pending", "Confirmed"].includes(booking.status)) {
+			if (!["Pending", "Confirmed", "Assigned"].includes(booking.status)) {
 				throw customError(
 					400,
 					`Cannot reschedule booking with status: ${booking.status}`
 				);
 			}
 
-			// Check if new slot is available
-			const conflictingBooking = await Booking.findOne({
-				_id: { $ne: id }, // Exclude current booking
-				booking_date: {
-					$gte: new Date(newBookingDateTime.setHours(0, 0, 0, 0)),
-					$lt: new Date(newBookingDateTime.setHours(23, 59, 59, 999)),
-				},
-				start_time: new_start_time,
-				status: { $nin: ["Cancelled"] },
-				is_active: true,
-			});
+			// Check photographer availability if assigned
+			if (booking.photographer_id) {
+				const conflictingBooking = await Booking.findOne({
+					_id: { $ne: id },
+					photographer_id: booking.photographer_id,
+					booking_date: {
+						$gte: new Date(newBookingDateTime.setHours(0, 0, 0, 0)),
+						$lt: new Date(newBookingDateTime.setHours(23, 59, 59, 999)),
+					},
+					start_time: new_start_time,
+					status: { $nin: ["Cancelled", "Completed"] },
+					is_active: true,
+				});
 
-			if (conflictingBooking) {
-				throw customError(400, "The new time slot is already booked");
+				if (conflictingBooking) {
+					throw customError(
+						400,
+						"Photographer is not available at the new time slot"
+					);
+				}
 			}
 
-			// Store original booking date for audit trail
 			const originalDate = booking.booking_date;
 
-			// Update booking
 			booking.booking_date = newBookingDateTime;
 			booking.start_time = new_start_time;
-			booking.end_time = new_end_time || null;
+			if (new_end_time) {
+				booking.end_time = new_end_time;
+			}
 			booking.status = "Rescheduled";
 			booking.rescheduled_from = originalDate;
 			booking.updated_by = new Types.ObjectId(userId);
-			booking.updated_at = new Date();
 
 			await booking.save();
 
-			// Return populated response
 			const populatedBooking = await Booking.findById(booking._id)
-				.populate<any>({
-					path: "package_id",
-					select: "name price looks",
-					populate: {
-						path: "included_services",
-						select: "name category is_available is_active",
-					},
+				.populate<{ customer_id: PopulatedCustomer }>({
+					path: "customer_id",
+					select: "first_name last_name email phone_number",
 				})
-				.populate<{ promo_id: PromoModel }>({
+				.populate<{ package_id: PopulatedPackage }>({
+					path: "package_id",
+					select: "package_name package_price description is_available",
+				})
+				.populate<{ photographer_id: PopulatedPhotographer }>({
+					path: "photographer_id",
+					select: "first_name last_name email specialization",
+				})
+				.populate<{ promo_id: PopulatedPromo }>({
 					path: "promo_id",
 					select: "promo_code discount_type discount_value",
-				});
+				})
+				.populate<{ services: PopulatedBookingService[] }>({
+					path: "services.service_id",
+					select: "service_name category price duration_minutes",
+				})
+				.lean<LeanPopulatedBooking>();
 
-			const bookingResponse: BookingResponse = {
-				id: String(populatedBooking!._id),
-				booking_reference: populatedBooking!.booking_reference,
-				customer_id: String(populatedBooking!.customer_id),
-				package: {
-					id: String(populatedBooking!.package_id._id),
-					name: populatedBooking!.package_id.name,
-					price: populatedBooking!.package_id.price,
-					looks: populatedBooking!.package_id.looks,
-					included_services: populatedBooking!.package_id.included_services.map(
-						(service: any) => ({
-							id: String(service._id),
-							name: service.name,
-							category: service.category,
-						})
-					),
-				},
-				promo: populatedBooking!.promo_id
-					? {
-							id: String(populatedBooking!.promo_id._id),
-							promo_code: populatedBooking!.promo_id.promo_code,
-							discount_type: populatedBooking!.promo_id.discount_type,
-							discount_value: populatedBooking!.promo_id.discount_value,
-					  }
-					: null,
-				booking_date: populatedBooking!.booking_date,
-				start_time: populatedBooking!.start_time,
-				end_time: populatedBooking!.end_time,
-				location: populatedBooking!.location,
-				theme: populatedBooking!.theme,
-				special_requests: populatedBooking!.special_requests,
-				status: populatedBooking!.status,
-				total_amount: populatedBooking!.total_amount,
-				discount_amount: populatedBooking!.discount_amount,
-				final_amount: populatedBooking!.final_amount,
-				booking_confirmed_at: populatedBooking!.booking_confirmed_at,
-				booking_completed_at: populatedBooking!.booking_completed_at,
-				cancelled_reason: populatedBooking!.cancelled_reason,
-				rescheduled_from: populatedBooking!.rescheduled_from,
-				created_at: populatedBooking!.created_at,
-				updated_at: populatedBooking!.updated_at,
-				is_active: populatedBooking!.is_active,
-				created_by: populatedBooking!.created_by,
-				updated_by: populatedBooking!.updated_by,
-			};
+			if (!populatedBooking) {
+				throw customError(500, "Failed to retrieve updated booking");
+			}
 
 			res.status(200).json({
 				status: 200,
 				message: "Booking rescheduled successfully!",
-				data: bookingResponse,
+				data: populatedBooking,
 			});
 		} catch (error) {
 			next(error);
@@ -1039,7 +720,7 @@ router.patch(
 	}
 );
 
-// PATCH /api/bookings/:id/start (Mark booking as ongoing)
+// PATCH /api/bookings/:id/start
 router.patch(
 	"/:id/start",
 	authenticateAmiUserToken,
@@ -1066,14 +747,13 @@ router.patch(
 				throw customError(404, "Booking not found");
 			}
 
-			if (booking.status !== "Confirmed") {
+			if (!["Confirmed", "Assigned"].includes(booking.status)) {
 				throw customError(
 					400,
 					`Cannot start booking with status: ${booking.status}`
 				);
 			}
 
-			// Check if it's the booking date
 			const today = new Date();
 			const bookingDate = new Date(booking.booking_date);
 			today.setHours(0, 0, 0, 0);
@@ -1085,7 +765,6 @@ router.patch(
 
 			booking.status = "Ongoing";
 			booking.updated_by = new Types.ObjectId(userId);
-			booking.updated_at = new Date();
 
 			await booking.save();
 
@@ -1100,7 +779,7 @@ router.patch(
 	}
 );
 
-// PATCH /api/bookings/:id/complete (Mark booking as completed)
+// PATCH /api/bookings/:id/complete
 router.patch(
 	"/:id/complete",
 	authenticateAmiUserToken,
@@ -1127,7 +806,7 @@ router.patch(
 				throw customError(404, "Booking not found");
 			}
 
-			if (!["Confirmed", "Ongoing"].includes(booking.status)) {
+			if (!["Confirmed", "Assigned", "Ongoing"].includes(booking.status)) {
 				throw customError(
 					400,
 					`Cannot complete booking with status: ${booking.status}`
@@ -1137,7 +816,6 @@ router.patch(
 			booking.status = "Completed";
 			booking.booking_completed_at = new Date();
 			booking.updated_by = new Types.ObjectId(userId);
-			booking.updated_at = new Date();
 
 			await booking.save();
 
@@ -1152,13 +830,13 @@ router.patch(
 	}
 );
 
-// GET /api/bookings/customer/:customerId (Get bookings for specific customer)
+// GET /api/bookings/customer/:customerId
 router.get(
 	"/customer/:customerId",
 	authenticateAmiUserToken,
 	async (
-		req: Request,
-		res: TypedResponse<BookingListResponse[]>,
+		req: Request<{ customerId: string }>,
+		res: TypedResponse<BookingListItem[]>,
 		next: NextFunction
 	) => {
 		try {
@@ -1184,30 +862,41 @@ router.get(
 			}
 
 			const bookings = await Booking.find(filter)
-				.populate<{ customer_id: CustomerModel }>({
+				.populate<{ customer_id: PopulatedCustomer }>({
 					path: "customer_id",
 					select: "first_name last_name",
 				})
-				.populate<{ package_id: PackageModel }>({
-					path: "package_id",
-					select: "name",
+				.populate<{ photographer_id: PopulatedPhotographer }>({
+					path: "photographer_id",
+					select: "first_name last_name",
+				})
+				.populate<{ services: PopulatedBookingService[] }>({
+					path: "services.service_id",
+					select: "service_name",
 				})
 				.sort({ booking_date: -1 })
-				.lean();
+				.lean<LeanPopulatedBooking[]>();
 
-			const bookingsResponse: BookingListResponse[] = bookings.map(
-				(booking) => ({
+			const bookingsResponse: BookingListItem[] = bookings.map((booking) => {
+				const serviceNames = booking.services
+					.map((s) => s.service_id.service_name)
+					.join(", ");
+
+				return {
 					id: String(booking._id),
 					booking_reference: booking.booking_reference,
 					customer_name: `${booking.customer_id.first_name} ${booking.customer_id.last_name}`,
-					package_name: booking.package_id.name,
+					services_summary: serviceNames || "No services",
 					booking_date: booking.booking_date,
 					start_time: booking.start_time,
 					location: booking.location,
 					status: booking.status,
 					final_amount: booking.final_amount,
-				})
-			);
+					photographer_name: booking.photographer_id
+						? `${booking.photographer_id.first_name} ${booking.photographer_id.last_name}`
+						: null,
+				};
+			});
 
 			res.status(200).json({
 				status: 200,
@@ -1215,29 +904,18 @@ router.get(
 				data: bookingsResponse,
 			});
 		} catch (error) {
-			console.error("Error fetching customer bookings:", error);
 			next(error);
 		}
 	}
 );
 
-// GET /api/bookings/analytics/summary (Booking analytics)
+// GET /api/bookings/analytics/summary
 router.get(
 	"/analytics/summary",
 	authenticateAmiUserToken,
 	async (
 		req: Request,
-		res: TypedResponse<{
-			total_bookings: number;
-			pending_bookings: number;
-			confirmed_bookings: number;
-			ongoing_bookings: number;
-			completed_bookings: number;
-			cancelled_bookings: number;
-			total_revenue: number;
-			today_bookings: number;
-			upcoming_bookings: number;
-		}>,
+		res: TypedResponse<BookingAnalyticsResponse>,
 		next: NextFunction
 	) => {
 		try {
@@ -1246,23 +924,26 @@ router.get(
 			const tomorrow = new Date(today);
 			tomorrow.setDate(today.getDate() + 1);
 
-			// Get all bookings counts
 			const [
 				totalBookings,
 				pendingBookings,
 				confirmedBookings,
+				assignedBookings,
 				ongoingBookings,
 				completedBookings,
 				cancelledBookings,
+				rescheduledBookings,
 				todayBookings,
 				upcomingBookings,
 			] = await Promise.all([
 				Booking.countDocuments({ is_active: true }),
 				Booking.countDocuments({ status: "Pending", is_active: true }),
 				Booking.countDocuments({ status: "Confirmed", is_active: true }),
+				Booking.countDocuments({ status: "Assigned", is_active: true }),
 				Booking.countDocuments({ status: "Ongoing", is_active: true }),
 				Booking.countDocuments({ status: "Completed", is_active: true }),
 				Booking.countDocuments({ status: "Cancelled", is_active: true }),
+				Booking.countDocuments({ status: "Rescheduled", is_active: true }),
 				Booking.countDocuments({
 					booking_date: { $gte: today, $lt: tomorrow },
 					status: { $nin: ["Cancelled"] },
@@ -1275,7 +956,6 @@ router.get(
 				}),
 			]);
 
-			// Calculate total revenue from completed bookings
 			const revenueResult = await Booking.aggregate([
 				{
 					$match: {
@@ -1301,27 +981,28 @@ router.get(
 					total_bookings: totalBookings,
 					pending_bookings: pendingBookings,
 					confirmed_bookings: confirmedBookings,
+					assigned_bookings: assignedBookings,
 					ongoing_bookings: ongoingBookings,
 					completed_bookings: completedBookings,
 					cancelled_bookings: cancelledBookings,
+					rescheduled_bookings: rescheduledBookings,
 					total_revenue: totalRevenue,
 					today_bookings: todayBookings,
 					upcoming_bookings: upcomingBookings,
 				},
 			});
 		} catch (error) {
-			console.error("Error fetching booking analytics:", error);
 			next(error);
 		}
 	}
 );
 
-// GET /api/bookings/reference/:reference (Get booking by reference number)
+// GET /api/bookings/reference/:reference
 router.get(
 	"/reference/:reference",
 	async (
-		req: Request,
-		res: TypedResponse<BookingResponse>,
+		req: Request<{ reference: string }>,
+		res: TypedResponse<LeanPopulatedBooking>,
 		next: NextFunction
 	) => {
 		try {
@@ -1335,76 +1016,38 @@ router.get(
 				booking_reference: reference.toUpperCase(),
 				is_active: true,
 			})
-				.populate<any>({
-					path: "package_id",
-					select: "name price looks",
-					populate: {
-						path: "included_services",
-						select: "name category is_available is_active",
-					},
+				.populate<{ customer_id: PopulatedCustomer }>({
+					path: "customer_id",
+					select: "first_name last_name email phone_number",
 				})
-				.populate<{ promo_id: PromoModel }>({
+				.populate<{ package_id: PopulatedPackage }>({
+					path: "package_id",
+					select: "package_name package_price description is_available",
+				})
+				.populate<{ photographer_id: PopulatedPhotographer }>({
+					path: "photographer_id",
+					select: "first_name last_name email specialization",
+				})
+				.populate<{ promo_id: PopulatedPromo }>({
 					path: "promo_id",
 					select: "promo_code discount_type discount_value",
-				});
+				})
+				.populate<{ services: PopulatedBookingService[] }>({
+					path: "services.service_id",
+					select: "service_name category price duration_minutes",
+				})
+				.lean<LeanPopulatedBooking>();
 
 			if (!booking) {
 				throw customError(404, "Booking not found");
 			}
 
-			const bookingResponse: BookingResponse = {
-				id: String(booking._id),
-				booking_reference: booking.booking_reference,
-				customer_id: String(booking.customer_id),
-				package: {
-					id: String(booking.package_id._id),
-					name: booking.package_id.name,
-					price: booking.package_id.price,
-					looks: booking.package_id.looks,
-					included_services: booking.package_id.included_services.map(
-						(service: any) => ({
-							id: String(service._id),
-							name: service.name,
-							category: service.category,
-						})
-					),
-				},
-				promo: booking.promo_id
-					? {
-							id: String(booking.promo_id._id),
-							promo_code: booking.promo_id.promo_code,
-							discount_type: booking.promo_id.discount_type,
-							discount_value: booking.promo_id.discount_value,
-					  }
-					: null,
-				booking_date: booking.booking_date,
-				start_time: booking.start_time,
-				end_time: booking.end_time,
-				location: booking.location,
-				theme: booking.theme,
-				special_requests: booking.special_requests,
-				status: booking.status,
-				total_amount: booking.total_amount,
-				discount_amount: booking.discount_amount,
-				final_amount: booking.final_amount,
-				booking_confirmed_at: booking.booking_confirmed_at,
-				booking_completed_at: booking.booking_completed_at,
-				cancelled_reason: booking.cancelled_reason,
-				rescheduled_from: booking.rescheduled_from,
-				created_at: booking.created_at,
-				updated_at: booking.updated_at,
-				is_active: booking.is_active,
-				created_by: booking.created_by,
-				updated_by: booking.updated_by,
-			};
-
 			res.status(200).json({
 				status: 200,
 				message: "Booking fetched successfully!",
-				data: bookingResponse,
+				data: booking,
 			});
 		} catch (error) {
-			console.error("Error fetching booking by reference:", error);
 			next(error);
 		}
 	}

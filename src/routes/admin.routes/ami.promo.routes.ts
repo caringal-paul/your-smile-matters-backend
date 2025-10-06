@@ -8,7 +8,7 @@ import {
 } from "../../models/Promo";
 import { Booking } from "../../models/Booking";
 import mongoose, { Types } from "mongoose";
-import { TypedResponse } from "../../types/base.types";
+import { MetaData, TypedResponse } from "../../types/base.types";
 import { customError } from "../../middleware/errorHandler";
 import {
 	authenticateAmiUserToken,
@@ -18,7 +18,7 @@ import {
 const router = Router();
 
 // Types for admin responses
-type AdminPromoResponse = {
+type AdminPromoResponse = MetaData & {
 	_id: string;
 	promo_code: string;
 	name: string;
@@ -35,10 +35,6 @@ type AdminPromoResponse = {
 	usage_count: number;
 	is_active: boolean;
 	conditions?: string | null;
-	created_at?: Date;
-	updated_at?: Date;
-	created_by: string;
-	updated_by?: string | null;
 	status: "Active" | "Expired" | "Inactive" | "Usage Exceeded";
 	effectiveness?: {
 		usage_rate: number;
@@ -232,8 +228,8 @@ router.post(
 				conditions: newPromo.conditions,
 				created_at: newPromo.created_at,
 				updated_at: newPromo.updated_at,
-				created_by: newPromo.created_by?.toString() || userId,
-				updated_by: null,
+				created_by: newPromo.created_by,
+				updated_by: undefined,
 				status: getPromoStatus(newPromo),
 				effectiveness: calculateEffectiveness(newPromo),
 			};
@@ -400,8 +396,8 @@ router.post(
 				conditions: duplicatedPromo.conditions,
 				created_at: duplicatedPromo.created_at,
 				updated_at: duplicatedPromo.updated_at,
-				created_by: duplicatedPromo.created_by?.toString() || userId,
-				updated_by: null,
+				created_by: duplicatedPromo.created_by,
+				updated_by: undefined,
 				status: getPromoStatus(duplicatedPromo),
 				effectiveness: calculateEffectiveness(duplicatedPromo),
 			};
@@ -470,8 +466,8 @@ router.get(
 					conditions: promo.conditions,
 					created_at: promo.created_at,
 					updated_at: promo.updated_at,
-					created_by: promo.created_by?.toString() || userId,
-					updated_by: promo.updated_by?.toString() || null,
+					created_by: promo.created_by,
+					updated_by: promo.updated_by,
 					status: getPromoStatus(promo as PromoModel),
 					effectiveness: calculateEffectiveness(promo as PromoModel),
 				})
@@ -615,8 +611,8 @@ router.get(
 				conditions: promo.conditions,
 				created_at: promo.created_at,
 				updated_at: promo.updated_at,
-				created_by: promo.created_by?.toString() || userId,
-				updated_by: promo.updated_by?.toString() || null,
+				created_by: promo.created_by,
+				updated_by: promo.updated_by,
 				status: getPromoStatus(promo as PromoModel),
 				effectiveness: calculateEffectiveness(promo as PromoModel),
 			}));
@@ -712,8 +708,8 @@ router.get(
 					conditions: promo.conditions,
 					created_at: promo.created_at,
 					updated_at: promo.updated_at,
-					created_by: promo.created_by?.toString() || userId,
-					updated_by: promo.updated_by?.toString() || null,
+					created_by: promo.created_by,
+					updated_by: promo.updated_by,
 					status: getPromoStatus(promo as PromoModel),
 					effectiveness: calculateEffectiveness(promo as PromoModel),
 					...(include_usage_history === "true" && {
@@ -733,7 +729,7 @@ router.get(
 );
 
 // PUT /api/admin/promos/:id (Update promo)
-router.put(
+router.patch(
 	"/:id",
 	authenticateAmiUserToken,
 	async (
@@ -831,8 +827,8 @@ router.put(
 				conditions: promo.conditions,
 				created_at: promo.created_at,
 				updated_at: promo.updated_at,
-				created_by: promo.created_by?.toString() || userId,
-				updated_by: promo.updated_by?.toString() || null,
+				created_by: promo.created_by,
+				updated_by: promo.updated_by,
 				status: getPromoStatus(promo),
 				effectiveness: calculateEffectiveness(promo),
 			};
@@ -953,8 +949,8 @@ router.post(
 				conditions: promo.conditions,
 				created_at: promo.created_at,
 				updated_at: promo.updated_at,
-				created_by: promo.created_by?.toString() || userId,
-				updated_by: promo.updated_by?.toString() || null,
+				created_by: promo.created_by,
+				updated_by: promo.updated_by,
 				status: getPromoStatus(promo),
 				effectiveness: calculateEffectiveness(promo),
 			};
@@ -1022,8 +1018,8 @@ router.post(
 				conditions: promo.conditions,
 				created_at: promo.created_at,
 				updated_at: promo.updated_at,
-				created_by: promo.created_by?.toString() || userId,
-				updated_by: promo.updated_by?.toString() || null,
+				created_by: promo.created_by,
+				updated_by: promo.updated_by,
 				status: getPromoStatus(promo),
 				effectiveness: calculateEffectiveness(promo),
 			};

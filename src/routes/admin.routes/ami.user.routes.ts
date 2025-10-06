@@ -11,11 +11,28 @@ import { requirePermission } from "../../middleware/permissionMiddleware";
 import { generateRandomPassword } from "../../utils/generateRandomValues";
 import { hashPassword } from "../../utils/tokenHandler";
 import { customError } from "../../middleware/errorHandler";
+import { renderNewAccountEmail } from "../../utils/generateEmailTemplate";
+import { sendEmail } from "../../utils/emailSender";
 
 const router = Router();
 
+type UserGetAllResponse = {
+	_id: string;
+	username: string;
+	email: string;
+	first_name: string;
+	last_name: string;
+	mobile_number: string;
+	role_id: string;
+	role_and_permissions: {
+		name: string;
+		description?: string;
+		permissions: string[];
+	} | null;
+};
+
 type UserResponse = MetaData & {
-	id: string;
+	_id: string;
 	username: string;
 	email: string;
 	first_name: string;
@@ -39,7 +56,7 @@ router.get(
 	authenticateAmiUserToken,
 	async (
 		req: Request,
-		res: TypedResponse<UserResponse[]>,
+		res: TypedResponse<UserGetAllResponse[]>,
 		next: NextFunction
 	) => {
 		try {
@@ -50,10 +67,8 @@ router.get(
 				})
 				.lean();
 
-			console.log("Fetched users:", users);
-
-			const usersWithRoles: UserResponse[] = users.map(
-				({ _id: id, role_id, ...user }) => {
+			const usersWithRoles: UserGetAllResponse[] = users.map(
+				({ role_id, ...user }) => {
 					// Check if role_id is populated (not just an ObjectId)
 					const isPopulated =
 						role_id &&
@@ -66,22 +81,15 @@ router.get(
 						: null;
 
 					return {
-						id: id.toString(),
+						_id: user._id.toString(),
+						email: user.email,
+						username: user.username,
+						first_name: user.first_name,
+						last_name: user.last_name,
+						mobile_number: user.mobile_number,
+						is_active: user.is_active,
+						updated_at: user.updated_at,
 						role_id: roleDoc?._id?.toString() ?? "",
-						...user,
-						// username: user.username,
-						// email: user.email,
-						// first_name: user.first_name,
-						// last_name: user.last_name,
-						// mobile_number: user.mobile_number,
-						// role_id: roleDoc?._id?.toString() ?? user.role_id?.toString() ?? "",
-						// created_at: user.created_at,
-						// updated_at: user.updated_at,
-						// is_active: user.is_active,
-						// created_by: user.created_by,
-						// updated_by: user.updated_by,
-						// deleted_by: user.deleted_by,
-						// deleted_at: user.deleted_at,
 						role_and_permissions: roleDoc
 							? {
 									name: roleDoc.name,
@@ -146,7 +154,7 @@ router.get(
 			const { _id, ...userWithoutObjectId } = user;
 
 			const userWithRole: UserResponse = {
-				id: _id.toString(),
+				_id: _id.toString(),
 				...userWithoutObjectId,
 				role_id: String(roleDoc?._id) ?? String(user.role_id) ?? "",
 				role_and_permissions: roleDoc
@@ -173,8 +181,7 @@ router.get(
 // POST /api/users
 router.post(
 	"/",
-	authenticateAmiUserToken,
-	// requirePermission("user:create"),
+	// authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
 		res: TypedResponse<UserCreateResponse>,
@@ -184,9 +191,9 @@ router.post(
 			const { username, email, first_name, last_name, mobile_number, role_id } =
 				req.body;
 
-			const userId = req.user?._id;
-			if (!userId)
-				throw customError(400, "No user id found. Please login again.");
+			// const userId = req.user?._id;
+			// if (!userId)
+			// 	throw customError(400, "No user id found. Please login again.");
 
 			// ✅ Validate role_id
 			if (!mongoose.Types.ObjectId.isValid(role_id)) {
@@ -211,12 +218,10 @@ router.post(
 				role_id,
 				is_active: true,
 				version: 0,
-				created_by: new Types.ObjectId(userId),
-				updated_by: new Types.ObjectId(userId),
-				retrieved_by: null,
-				deleted_by: null,
-				deleted_at: null,
-				retrieved_at: null,
+				// created_by: new Types.ObjectId(userId),
+				// updated_by: new Types.ObjectId(userId),
+				created_by: new Types.ObjectId(),
+				updated_by: new Types.ObjectId(),
 			});
 
 			await user.save();
@@ -235,7 +240,7 @@ router.post(
 					: null;
 
 			const userResponse: UserCreateResponse = {
-				id: populatedUser._id.toString(),
+				_id: populatedUser._id.toString(),
 				username: user.username,
 				email: user.email,
 				first_name: user.first_name,
@@ -254,6 +259,33 @@ router.post(
 				temporary_password: generatedPassword,
 			};
 
+			// ✅ Send styled email
+			try {
+				const htmlContent = renderNewAccountEmail({
+					role: rolePopulated?.name ?? "User",
+					firstName: first_name,
+					email,
+					password: generatedPassword,
+					loginUrl: "https://localhost.com/auth",
+					companyName: "Your Smile Matters",
+					supportEmail: "ysmphotographysupport@gmail.com",
+				});
+
+				await sendEmail({
+					to: email,
+					subject: `Your ${
+						rolePopulated?.name ?? "User"
+					} account has been created`,
+					html: htmlContent,
+				});
+			} catch (emailErr) {
+				throw customError(
+					500,
+					"Email not sent! Please contact your administrator."
+				);
+			}
+
+			// ✅ Respond
 			res.status(201).json({
 				status: 201,
 				message: "User created successfully!",
@@ -264,7 +296,6 @@ router.post(
 		}
 	}
 );
-
 // PATCH /api/users/:id
 router.patch(
 	"/:id",
@@ -344,7 +375,7 @@ router.patch(
 					: null;
 
 			const userResponse: UserResponse = {
-				id: user._id as string,
+				_id: user._id as string,
 				username: user.username,
 				email: user.email,
 				first_name: user.first_name,

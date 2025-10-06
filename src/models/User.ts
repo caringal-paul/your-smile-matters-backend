@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 import { MetaData } from "../types/base.types";
+import { Role } from "./Role";
 
 // For email regex, you can reuse your zod regex pattern
 const emailRegex = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/;
@@ -13,8 +14,6 @@ export type UserModel = Document &
 		mobile_number: string;
 		password: string;
 		role_id: Types.ObjectId;
-		reset_password_token?: string;
-		reset_password_expires?: Date;
 	};
 
 const userSchema = new Schema<UserModel>(
@@ -64,16 +63,6 @@ const userSchema = new Schema<UserModel>(
 				},
 				message: "Role does not exist",
 			},
-		},
-
-		// Hidden
-		reset_password_token: {
-			type: String,
-			select: false, // ✅ Hidden by default
-		},
-		reset_password_expires: {
-			type: Date,
-			select: false, // ✅ Hidden by default
 		},
 
 		// Metadata
