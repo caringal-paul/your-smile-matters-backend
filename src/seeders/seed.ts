@@ -9,12 +9,7 @@ import {
 } from "../models/Photographer";
 import { Service } from "../models/Service";
 import { Package } from "../models/Package";
-import {
-	Booking,
-	BookingModel,
-	BookingStatusEnum,
-	PaymentMethodEnum,
-} from "../models/Booking";
+import { Booking, BookingModel, BookingStatusEnum } from "../models/Booking";
 import { ServiceCategoryEnum } from "../constants/service-category.constant";
 import { faker } from "@faker-js/faker";
 import { Role } from "../models/Role";
@@ -25,6 +20,7 @@ import {
 	isAfter,
 	parse,
 } from "date-fns";
+import { PaymentMethodEnum } from "../models/Transaction";
 
 const MONGODB_URI =
 	process.env.MONGODB_URI || "mongodb://localhost:27017/capstone-dev";
@@ -918,6 +914,7 @@ export const seedBookings = async (admin: any) => {
 			}[];
 		};
 
+		// Get available slots for the photographer on the selected date
 		const availableSlots = await getAvailableSlotsForSeeder(
 			photographer,
 			bookingDate
@@ -928,10 +925,13 @@ export const seedBookings = async (admin: any) => {
 			continue;
 		}
 
+		// Select a random slot from the available slots
 		const selectedSlot = faker.helpers.arrayElement(availableSlots);
 
+		// Extract start and end times from the selected slot
 		const [start_time, end_time] = selectedSlot.split(" - ");
 
+		// Select a random service and calculate its details
 		const service = faker.helpers.arrayElement(services);
 		const quantity = faker.number.int({ min: 1, max: 3 });
 
@@ -945,16 +945,18 @@ export const seedBookings = async (admin: any) => {
 			},
 		];
 
+		// Calculate pricing details
 		const totalAmount = servicesList.reduce((sum, s) => sum + s.total_price, 0);
 		const discountAmount = faker.number.int({ min: 0, max: 300 });
 		const finalAmount = Math.max(totalAmount - discountAmount, 0);
-		const amountPaid = faker.number.int({ min: 0, max: finalAmount });
 
+		// Calculate session duration
 		const slotParts = selectedSlot.split(" - ");
 		const startDate = parse(slotParts[0], "HH:mm", bookingDate);
 		const endDate = parse(slotParts[1], "HH:mm", bookingDate);
 		const durationMinutes = differenceInMinutes(endDate, startDate);
 
+		// Create the booking
 		const booking = new Booking({
 			booking_reference: `BK-${faker.string.alpha(8).toUpperCase()}`,
 			customer_id: customer._id,
@@ -979,14 +981,6 @@ export const seedBookings = async (admin: any) => {
 			total_amount: totalAmount,
 			discount_amount: discountAmount,
 			final_amount: finalAmount,
-			amount_paid: amountPaid,
-			method_of_payment: faker.helpers.arrayElement(
-				Object.values(PaymentMethodEnum)
-			),
-			payment_images: [faker.image.url({ width: 640, height: 480 })],
-			is_partially_paid:
-				amountPaid > 0 && amountPaid < finalAmount ? true : false,
-			is_payment_complete: amountPaid >= finalAmount,
 			created_by: createdBy._id,
 		});
 

@@ -6,9 +6,10 @@ import {
 } from "../../middleware/authMiddleware";
 import { TypedResponse } from "../../types/base.types";
 import { customError } from "../../middleware/errorHandler";
-import { Booking, BookingStatus, PaymentMethod } from "../../models/Booking";
+import { Booking, BookingStatus } from "../../models/Booking";
 import { Package } from "../../models/Package";
 import { Promo } from "../../models/Promo";
+import { PaymentMethod } from "../../models/Transaction";
 
 // Types for the endpoint
 interface CreateBookingRequestBody {
@@ -333,7 +334,7 @@ router.post(
 				location: location.trim(),
 				theme: theme?.trim() || null,
 				special_requests: special_requests?.trim() || null,
-				status: photographer_id ? "Assigned" : "Pending",
+				status: "Pending",
 				total_amount: total_amount,
 				discount_amount: discount_amount || 0,
 				final_amount: final_amount,
@@ -344,11 +345,6 @@ router.post(
 				created_by: new Types.ObjectId(userId),
 				updated_by: new Types.ObjectId(userId),
 			});
-
-			// Set photographer_assigned_at if photographer is assigned
-			if (photographer_id) {
-				booking.photographer_assigned_at = new Date();
-			}
 
 			await booking.save();
 

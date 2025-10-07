@@ -1,15 +1,21 @@
-import { Router, Request, NextFunction } from "express";
-import { Booking, BookingStatus, PaymentMethod } from "../../models/Booking";
-import { Package } from "../../models/Package";
-import { Service } from "../../models/Service";
-import mongoose, { Types } from "mongoose";
-import { TypedResponse } from "../../types/base.types";
+import { NextFunction, Router } from "express";
+import { Types } from "mongoose";
+import { Booking, BookingStatus } from "../../models/Booking";
 import {
-	AuthenticatedRequest,
+	PaymentMethod,
+	Transaction,
+	TransactionType,
+} from "../../models/Transaction";
+import {
 	authenticateAmiUserToken,
+	AuthenticatedRequest,
 } from "../../middleware/authMiddleware";
+import { TypedResponse } from "../../types/base.types";
 import { customError } from "../../middleware/errorHandler";
+import mongoose from "mongoose";
 import { Promo } from "../../models/Promo";
+import { Service } from "../../models/Service";
+import { Gender } from "../../types/literal.types";
 
 const router = Router();
 
@@ -23,12 +29,14 @@ interface PopulatedCustomer {
 	first_name: string;
 	last_name: string;
 	email: string;
-	phone_number?: string;
+	mobile_number?: string;
+	profile_image?: string | null;
+	gender: Gender;
 }
 
 interface PopulatedPackage {
 	_id: Types.ObjectId;
-	package_name: string;
+	name: string;
 	package_price: number;
 	description?: string;
 	is_available: boolean;
@@ -36,10 +44,12 @@ interface PopulatedPackage {
 
 interface PopulatedPhotographer {
 	_id: Types.ObjectId;
-	first_name: string;
-	last_name: string;
+	name: string;
 	email: string;
-	specialization?: string;
+	specialties?: string;
+	bio?: string;
+	profile_image?: string | null;
+	mobile_number?: string | null;
 }
 
 interface PopulatedPromo {
@@ -51,7 +61,7 @@ interface PopulatedPromo {
 
 interface PopulatedService {
 	_id: Types.ObjectId;
-	service_name: string;
+	name: string;
 	category: string;
 	price: number;
 	duration_minutes?: number;
@@ -64,6 +74,20 @@ interface PopulatedBookingService {
 	total_price: number;
 	duration_minutes?: number | null;
 	_id: Types.ObjectId;
+}
+
+// Transaction populated type
+interface PopulatedTransaction {
+	_id: Types.ObjectId;
+	transaction_reference: string;
+	amount: number;
+	transaction_type: string;
+	payment_method: string;
+	status: string;
+	transaction_date: Date;
+	payment_proof_images: string[];
+	external_reference?: string | null;
+	notes?: string | null;
 }
 
 // Full populated booking type
@@ -88,13 +112,7 @@ interface LeanPopulatedBooking {
 	total_amount: number;
 	discount_amount: number;
 	final_amount: number;
-	amount_paid: number;
-	method_of_payment?: PaymentMethod | null;
-	payment_images: string[];
-	is_partially_paid: boolean;
-	is_payment_complete: boolean;
 	booking_confirmed_at?: Date | null;
-	photographer_assigned_at?: Date | null;
 	booking_completed_at?: Date | null;
 	cancelled_reason?: string | null;
 	rescheduled_from?: Date | null;
@@ -103,7 +121,7 @@ interface LeanPopulatedBooking {
 	photographer_rating?: number | null;
 	is_active: boolean;
 	created_by: Types.ObjectId;
-	updated_by: Types.ObjectId;
+	updated_by?: Types.ObjectId | null;
 	deleted_by?: Types.ObjectId | null;
 	retrieved_by?: Types.ObjectId | null;
 	deleted_at?: Date | null;
@@ -112,25 +130,33 @@ interface LeanPopulatedBooking {
 	updated_at: Date;
 }
 
+// Booking with payment status
+interface BookingWithPaymentStatus extends LeanPopulatedBooking {
+	payment_status: {
+		amount_paid: number;
+		remaining_balance: number;
+		is_partially_paid: boolean;
+		is_payment_complete: boolean;
+		transactions: PopulatedTransaction[];
+	};
+}
+
 // Response types
 interface BookingListItem {
-	id: string;
+	_id: string;
 	booking_reference: string;
 	customer_name: string;
 	services_summary: string;
 	booking_date: Date;
 	start_time: string;
+	end_time: string;
 	location: string;
 	status: BookingStatus;
 	final_amount: number;
+	amount_paid: number;
+	remaining_balance: number;
+	is_payment_complete: boolean;
 	photographer_name?: string | null;
-}
-
-interface PriceCalculationResponse {
-	total_amount: number;
-	discount_amount: number;
-	final_amount: number;
-	promo_applied?: boolean;
 }
 
 interface BookingAnalyticsResponse {
@@ -143,144 +169,89 @@ interface BookingAnalyticsResponse {
 	cancelled_bookings: number;
 	rescheduled_bookings: number;
 	total_revenue: number;
+	total_paid: number;
+	total_pending_payment: number;
 	today_bookings: number;
-	upcoming_bookings: number;
 }
 
-// Request body types
-interface CalculatePriceRequest {
-	services: {
-		service_id: string;
-		quantity: number;
-	}[];
-	promo_code?: string;
-	booking_date?: string;
-}
+// WORKON DETERMINE THE POSSIBLE ENDPOINTS FOR AMI BOOKING AND TRANSACTIONS
 
-interface CancelBookingRequest {
-	cancelled_reason: string;
-}
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
 
-interface RescheduleBookingRequest {
-	new_booking_date: string;
-	new_start_time: string;
-	new_end_time?: string;
+async function getBookingPaymentStatus(bookingId: string) {
+	const transactions = await Transaction.find({
+		booking_id: bookingId,
+		status: "Completed",
+		is_active: true,
+	}).lean<PopulatedTransaction[]>();
+
+	const amountPaid = transactions
+		.filter((t: PopulatedTransaction) =>
+			["Payment", "Partial", "Deposit", "Balance"].includes(t.transaction_type)
+		)
+		.reduce((sum: number, t: PopulatedTransaction) => sum + t.amount, 0);
+
+	const booking = await Booking.findById(bookingId);
+	const finalAmount = booking?.final_amount || 0;
+
+	return {
+		amount_paid: amountPaid,
+		remaining_balance: finalAmount - amountPaid,
+		is_partially_paid: amountPaid > 0 && amountPaid < finalAmount,
+		is_payment_complete: amountPaid >= finalAmount,
+		transactions,
+	};
 }
 
 // ============================================================================
 // ROUTES
 // ============================================================================
 
-// POST /api/bookings/calculate-price
-router.post(
-	"/calculate-price",
+// GET /api/bookings/:id/payment-status
+// ? CHECKS THE BOOKING AND TRANSACTION RELATIONSHIPS THIS RETURNS THE TRANSACTIONS INSIDE THAT BOOKING.
+router.get(
+	"/:id/payment-status",
+	authenticateAmiUserToken,
 	async (
-		req: Request<{}, {}, CalculatePriceRequest>,
-		res: TypedResponse<PriceCalculationResponse>,
+		req: AuthenticatedRequest,
+		res: TypedResponse<{
+			total_amount: number;
+			discount_amount: number;
+			final_amount: number;
+			amount_paid: number;
+			remaining_balance: number;
+			is_partially_paid: boolean;
+			is_payment_complete: boolean;
+			transactions: PopulatedTransaction[];
+		}>,
 		next: NextFunction
 	) => {
 		try {
-			const { services, promo_code, booking_date } = req.body;
+			const { id } = req.params;
 
-			if (!services || !Array.isArray(services) || services.length === 0) {
-				throw customError(400, "Services array is required");
+			if (!mongoose.Types.ObjectId.isValid(id)) {
+				throw customError(400, "Invalid booking ID format");
 			}
 
-			// Calculate total from services
-			let totalAmount = 0;
-
-			for (const serviceItem of services) {
-				if (!mongoose.Types.ObjectId.isValid(serviceItem.service_id)) {
-					throw customError(400, "Invalid service ID format");
-				}
-
-				const service = await Service.findById(serviceItem.service_id);
-				if (!service) {
-					throw customError(
-						404,
-						`Service not found: ${serviceItem.service_id}`
-					);
-				}
-
-				totalAmount += service.price * serviceItem.quantity;
+			const booking = await Booking.findById(id).lean<LeanPopulatedBooking>();
+			if (!booking) {
+				throw customError(404, "Booking not found");
 			}
 
-			let discountAmount = 0;
-			let promoApplied = false;
-
-			// Check promo if provided
-			if (promo_code) {
-				const promo = await Promo.findOne({
-					promo_code: promo_code.toUpperCase(),
-					is_active: true,
-				});
-
-				if (promo) {
-					const now = new Date();
-					const bookingDateTime = booking_date ? new Date(booking_date) : now;
-
-					// Check if promo is currently valid
-					if (promo.valid_from <= now && promo.valid_until >= now) {
-						let isValidForBooking = true;
-
-						// Check Early Bird promo conditions
-						if (promo.promo_type === "Early_Bird" && promo.min_advance_days) {
-							const daysDiff = Math.floor(
-								(bookingDateTime.getTime() - now.getTime()) /
-									(1000 * 60 * 60 * 24)
-							);
-							if (daysDiff < promo.min_advance_days) {
-								isValidForBooking = false;
-							}
-						}
-
-						// Check minimum booking amount
-						if (
-							promo.min_booking_amount &&
-							totalAmount < promo.min_booking_amount
-						) {
-							isValidForBooking = false;
-						}
-
-						// Check usage limit
-						if (promo.usage_limit && promo.usage_count >= promo.usage_limit) {
-							isValidForBooking = false;
-						}
-
-						if (isValidForBooking) {
-							// Calculate discount
-							if (promo.discount_type === "Percentage") {
-								discountAmount = Math.round(
-									(totalAmount * promo.discount_value) / 100
-								);
-							} else if (promo.discount_type === "Fixed_Amount") {
-								discountAmount = promo.discount_value;
-							}
-
-							// Apply max discount limit
-							if (
-								promo.max_discount_amount &&
-								discountAmount > promo.max_discount_amount
-							) {
-								discountAmount = promo.max_discount_amount;
-							}
-
-							promoApplied = true;
-						}
-					}
-				}
-			}
-
-			const finalAmount = totalAmount - discountAmount;
+			const paymentStatus = await getBookingPaymentStatus(
+				booking._id.toString()
+			);
 
 			res.status(200).json({
 				status: 200,
-				message: "Price calculated successfully!",
+				message: "Payment status fetched successfully!",
 				data: {
-					total_amount: totalAmount,
-					discount_amount: discountAmount,
-					final_amount: finalAmount,
-					promo_applied: promoApplied,
+					total_amount: booking.total_amount,
+					discount_amount: booking.discount_amount,
+					final_amount: booking.final_amount,
+					...paymentStatus,
 				},
 			});
 		} catch (error) {
@@ -290,11 +261,12 @@ router.post(
 );
 
 // GET /api/bookings
+// ? GET ALL BOOKINGS FOR TABLE OF AMI
 router.get(
 	"/",
 	authenticateAmiUserToken,
 	async (
-		req: Request,
+		req: AuthenticatedRequest,
 		res: TypedResponse<BookingListItem[]>,
 		next: NextFunction
 	) => {
@@ -306,13 +278,14 @@ router.get(
 				date_from,
 				date_to,
 				search,
+				payment_status,
 				sort_by = "booking_date",
 				sort_order = "desc",
 				page = 1,
 				limit = 20,
 			} = req.query;
 
-			const filter: any = { is_active: true };
+			const filter: mongoose.FilterQuery<typeof Booking> = { is_active: true };
 
 			if (status && status !== "all") {
 				filter.status = status;
@@ -345,49 +318,83 @@ router.get(
 				];
 			}
 
-			const sortObj: any = {};
+			const sortObj: Record<string, 1 | -1> = {};
 			sortObj[sort_by as string] = sort_order === "desc" ? -1 : 1;
 
 			const skip = (Number(page) - 1) * Number(limit);
 
 			const bookings = await Booking.find(filter)
-				.populate<{ customer_id: PopulatedCustomer }>({
-					path: "customer_id",
-					select: "first_name last_name",
-				})
-				.populate<{ photographer_id: PopulatedPhotographer }>({
-					path: "photographer_id",
-					select: "first_name last_name",
-				})
-				.populate<{ services: PopulatedBookingService[] }>({
-					path: "services.service_id",
-					select: "service_name",
-				})
+				.populate<{ customer_id: PopulatedCustomer }>(
+					"customer_id",
+					"first_name last_name email mobile_number profile_image gender"
+				)
+				.populate<{ photographer_id: PopulatedPhotographer }>(
+					"photographer_id",
+					"name email specialties bio profile_image mobile_number"
+				)
+				.populate<{ services: PopulatedBookingService[] }>(
+					"services.service_id",
+					"name"
+				)
 				.sort(sortObj)
 				.skip(skip)
 				.limit(Number(limit))
 				.lean<LeanPopulatedBooking[]>();
 
-			const bookingsResponse: BookingListItem[] = bookings.map((booking) => {
-				const serviceNames = booking.services
-					.map((s) => s.service_id.service_name)
-					.join(", ");
+			const bookingsWithPayment = await Promise.all(
+				bookings.map(async (booking) => {
+					const paymentStatus = await getBookingPaymentStatus(
+						booking._id.toString()
+					);
+					return { booking, paymentStatus };
+				})
+			);
 
-				return {
-					id: String(booking._id),
-					booking_reference: booking.booking_reference,
-					customer_name: `${booking.customer_id.first_name} ${booking.customer_id.last_name}`,
-					services_summary: serviceNames || "No services",
-					booking_date: booking.booking_date,
-					start_time: booking.start_time,
-					location: booking.location,
-					status: booking.status,
-					final_amount: booking.final_amount,
-					photographer_name: booking.photographer_id
-						? `${booking.photographer_id.first_name} ${booking.photographer_id.last_name}`
-						: null,
-				};
-			});
+			let filteredBookings = bookingsWithPayment;
+
+			if (payment_status === "paid") {
+				filteredBookings = bookingsWithPayment.filter(
+					(b) => b.paymentStatus.is_payment_complete
+				);
+			} else if (payment_status === "unpaid") {
+				filteredBookings = bookingsWithPayment.filter(
+					(b) => b.paymentStatus.amount_paid === 0
+				);
+			} else if (payment_status === "partial") {
+				filteredBookings = bookingsWithPayment.filter(
+					(b) => b.paymentStatus.is_partially_paid
+				);
+			}
+
+			console.log(bookings);
+
+			const bookingsResponse: BookingListItem[] = filteredBookings.map(
+				({ booking, paymentStatus }) => {
+					const serviceNames = booking.services
+						.map((s: PopulatedBookingService) => s.service_id.name)
+						.join(", ");
+
+					return {
+						_id: String(booking._id),
+						booking_reference: booking.booking_reference,
+						customer_name: `${booking.customer_id.first_name} ${booking.customer_id.last_name}`,
+						services_summary: serviceNames || "No services",
+						booking_date: booking.booking_date,
+						start_time: booking.start_time,
+						end_time: booking.end_time,
+						location: booking.location,
+						status: booking.status,
+						final_amount: booking.final_amount,
+						amount_paid: paymentStatus.amount_paid,
+						remaining_balance: paymentStatus.remaining_balance,
+						is_payment_complete: paymentStatus.is_payment_complete,
+						photographer_id: booking.photographer_id?._id,
+						photographer_name: booking.photographer_id
+							? `${booking.photographer_id.name}`
+							: null,
+					};
+				}
+			);
 
 			res.status(200).json({
 				status: 200,
@@ -406,7 +413,7 @@ router.get(
 	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
-		res: TypedResponse<LeanPopulatedBooking>,
+		res: TypedResponse<BookingWithPaymentStatus>,
 		next: NextFunction
 	) => {
 		try {
@@ -417,36 +424,45 @@ router.get(
 			}
 
 			const booking = await Booking.findById(id)
-				.populate<{ customer_id: PopulatedCustomer }>({
-					path: "customer_id",
-					select: "first_name last_name email phone_number",
-				})
-				.populate<{ package_id: PopulatedPackage }>({
-					path: "package_id",
-					select: "package_name package_price description is_available",
-				})
-				.populate<{ photographer_id: PopulatedPhotographer }>({
-					path: "photographer_id",
-					select: "first_name last_name email specialization",
-				})
-				.populate<{ promo_id: PopulatedPromo }>({
-					path: "promo_id",
-					select: "promo_code discount_type discount_value",
-				})
-				.populate<{ services: PopulatedBookingService[] }>({
-					path: "services.service_id",
-					select: "service_name category price duration_minutes",
-				})
+				.populate<{ customer_id: PopulatedCustomer }>(
+					"customer_id",
+					"first_name last_name email mobile_number profile_image gender"
+				)
+				.populate<{ package_id: PopulatedPackage }>(
+					"package_id",
+					"name package_price description is_available"
+				)
+				.populate<{ photographer_id: PopulatedPhotographer }>(
+					"photographer_id",
+					"name email specialties bio profile_image mobile_number"
+				)
+				.populate<{ promo_id: PopulatedPromo }>(
+					"promo_id",
+					"promo_code discount_type discount_value"
+				)
+				.populate<{ services: PopulatedBookingService[] }>(
+					"services.service_id",
+					"name category price duration_minutes"
+				)
 				.lean<LeanPopulatedBooking>();
 
 			if (!booking) {
 				throw customError(404, "Booking not found");
 			}
 
+			const paymentStatus = await getBookingPaymentStatus(
+				booking._id.toString()
+			);
+
+			const bookingWithPayment: BookingWithPaymentStatus = {
+				...booking,
+				payment_status: paymentStatus,
+			};
+
 			res.status(200).json({
 				status: 200,
 				message: "Booking fetched successfully!",
-				data: booking,
+				data: bookingWithPayment,
 			});
 		} catch (error) {
 			next(error);
@@ -460,7 +476,7 @@ router.patch(
 	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
-		res: TypedResponse<LeanPopulatedBooking>,
+		res: TypedResponse<BookingWithPaymentStatus>,
 		next: NextFunction
 	) => {
 		try {
@@ -499,36 +515,45 @@ router.patch(
 			await booking.save();
 
 			const populatedBooking = await Booking.findById(booking._id)
-				.populate<{ customer_id: PopulatedCustomer }>({
-					path: "customer_id",
-					select: "first_name last_name email phone_number",
-				})
-				.populate<{ package_id: PopulatedPackage }>({
-					path: "package_id",
-					select: "package_name package_price description is_available",
-				})
-				.populate<{ photographer_id: PopulatedPhotographer }>({
-					path: "photographer_id",
-					select: "first_name last_name email specialization",
-				})
-				.populate<{ promo_id: PopulatedPromo }>({
-					path: "promo_id",
-					select: "promo_code discount_type discount_value",
-				})
-				.populate<{ services: PopulatedBookingService[] }>({
-					path: "services.service_id",
-					select: "service_name category price duration_minutes",
-				})
+				.populate<{ customer_id: PopulatedCustomer }>(
+					"customer_id",
+					"first_name last_name email mobile_number profile_image gender"
+				)
+				.populate<{ package_id: PopulatedPackage }>(
+					"package_id",
+					"name package_price description is_available"
+				)
+				.populate<{ photographer_id: PopulatedPhotographer }>(
+					"photographer_id",
+					"name email specialties bio profile_image mobile_number"
+				)
+				.populate<{ promo_id: PopulatedPromo }>(
+					"promo_id",
+					"promo_code discount_type discount_value"
+				)
+				.populate<{ services: PopulatedBookingService[] }>(
+					"services.service_id",
+					"name category price duration_minutes"
+				)
 				.lean<LeanPopulatedBooking>();
 
 			if (!populatedBooking) {
 				throw customError(500, "Failed to retrieve updated booking");
 			}
 
+			const updatedPaymentStatus = await getBookingPaymentStatus(
+				populatedBooking._id.toString()
+			);
+
+			const bookingWithPayment: BookingWithPaymentStatus = {
+				...populatedBooking,
+				payment_status: updatedPaymentStatus,
+			};
+
 			res.status(200).json({
 				status: 200,
 				message: "Booking confirmed successfully!",
-				data: populatedBooking,
+				data: bookingWithPayment,
 			});
 		} catch (error) {
 			next(error);
@@ -541,13 +566,13 @@ router.patch(
 	"/:id/cancel",
 	authenticateAmiUserToken,
 	async (
-		req: AuthenticatedRequest,
+		req: AuthenticatedRequest<{ id: string }, {}, { cancelled_reason: string }>,
 		res: TypedResponse<null>,
 		next: NextFunction
 	) => {
 		try {
 			const { id } = req.params;
-			const { cancelled_reason } = req.body;
+			const { cancelled_reason } = req.body || {};
 			const userId = req.user?._id;
 
 			if (!userId) {
@@ -601,12 +626,12 @@ router.patch(
 	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
-		res: TypedResponse<LeanPopulatedBooking>,
+		res: TypedResponse<BookingWithPaymentStatus>,
 		next: NextFunction
 	) => {
 		try {
 			const { id } = req.params;
-			const { new_booking_date, new_start_time, new_end_time } = req.body;
+			const { new_booking_date, new_start_time, new_end_time } = req.body || {};
 			const userId = req.user?._id;
 
 			if (!userId) {
@@ -617,8 +642,11 @@ router.patch(
 				throw customError(400, "Invalid booking ID format");
 			}
 
-			if (!new_booking_date || !new_start_time) {
-				throw customError(400, "New booking date and start time are required");
+			if (!new_booking_date || (!new_start_time && !new_end_time)) {
+				throw customError(
+					400,
+					"New booking date, start time, and end time are required"
+				);
 			}
 
 			const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
@@ -640,7 +668,7 @@ router.patch(
 				throw customError(404, "Booking not found");
 			}
 
-			if (!["Pending", "Confirmed", "Assigned"].includes(booking.status)) {
+			if (!["Pending", "Confirmed"].includes(booking.status)) {
 				throw customError(
 					400,
 					`Cannot reschedule booking with status: ${booking.status}`
@@ -657,6 +685,7 @@ router.patch(
 						$lt: new Date(newBookingDateTime.setHours(23, 59, 59, 999)),
 					},
 					start_time: new_start_time,
+					end_time: new_end_time,
 					status: { $nin: ["Cancelled", "Completed"] },
 					is_active: true,
 				});
@@ -673,9 +702,7 @@ router.patch(
 
 			booking.booking_date = newBookingDateTime;
 			booking.start_time = new_start_time;
-			if (new_end_time) {
-				booking.end_time = new_end_time;
-			}
+			booking.end_time = new_end_time;
 			booking.status = "Rescheduled";
 			booking.rescheduled_from = originalDate;
 			booking.updated_by = new Types.ObjectId(userId);
@@ -683,36 +710,45 @@ router.patch(
 			await booking.save();
 
 			const populatedBooking = await Booking.findById(booking._id)
-				.populate<{ customer_id: PopulatedCustomer }>({
-					path: "customer_id",
-					select: "first_name last_name email phone_number",
-				})
-				.populate<{ package_id: PopulatedPackage }>({
-					path: "package_id",
-					select: "package_name package_price description is_available",
-				})
-				.populate<{ photographer_id: PopulatedPhotographer }>({
-					path: "photographer_id",
-					select: "first_name last_name email specialization",
-				})
-				.populate<{ promo_id: PopulatedPromo }>({
-					path: "promo_id",
-					select: "promo_code discount_type discount_value",
-				})
-				.populate<{ services: PopulatedBookingService[] }>({
-					path: "services.service_id",
-					select: "service_name category price duration_minutes",
-				})
+				.populate<{ customer_id: PopulatedCustomer }>(
+					"customer_id",
+					"first_name last_name email mobile_number profile_image gender"
+				)
+				.populate<{ package_id: PopulatedPackage }>(
+					"package_id",
+					"name package_price description is_available"
+				)
+				.populate<{ photographer_id: PopulatedPhotographer }>(
+					"photographer_id",
+					"name email specialties bio profile_image mobile_number"
+				)
+				.populate<{ promo_id: PopulatedPromo }>(
+					"promo_id",
+					"promo_code discount_type discount_value"
+				)
+				.populate<{ services: PopulatedBookingService[] }>(
+					"services.service_id",
+					"name category price duration_minutes"
+				)
 				.lean<LeanPopulatedBooking>();
 
 			if (!populatedBooking) {
 				throw customError(500, "Failed to retrieve updated booking");
 			}
 
+			const paymentStatus = await getBookingPaymentStatus(
+				populatedBooking._id.toString()
+			);
+
+			const bookingWithPayment: BookingWithPaymentStatus = {
+				...populatedBooking,
+				payment_status: paymentStatus,
+			};
+
 			res.status(200).json({
 				status: 200,
 				message: "Booking rescheduled successfully!",
-				data: populatedBooking,
+				data: bookingWithPayment,
 			});
 		} catch (error) {
 			next(error);
@@ -747,7 +783,7 @@ router.patch(
 				throw customError(404, "Booking not found");
 			}
 
-			if (!["Confirmed", "Assigned"].includes(booking.status)) {
+			if (!["Confirmed"].includes(booking.status)) {
 				throw customError(
 					400,
 					`Cannot start booking with status: ${booking.status}`
@@ -806,10 +842,19 @@ router.patch(
 				throw customError(404, "Booking not found");
 			}
 
-			if (!["Confirmed", "Assigned", "Ongoing"].includes(booking.status)) {
+			if (!["Confirmed", "Ongoing"].includes(booking.status)) {
 				throw customError(
 					400,
 					`Cannot complete booking with status: ${booking.status}`
+				);
+			}
+
+			// Check if payment is complete
+			const paymentStatus = await getBookingPaymentStatus(id);
+			if (!paymentStatus.is_payment_complete) {
+				throw customError(
+					400,
+					"Cannot complete booking with incomplete payment"
 				);
 			}
 
@@ -835,7 +880,7 @@ router.get(
 	"/customer/:customerId",
 	authenticateAmiUserToken,
 	async (
-		req: Request<{ customerId: string }>,
+		req: AuthenticatedRequest,
 		res: TypedResponse<BookingListItem[]>,
 		next: NextFunction
 	) => {
@@ -847,7 +892,7 @@ router.get(
 				throw customError(400, "Invalid customer ID format");
 			}
 
-			const filter: any = {
+			const filter: mongoose.FilterQuery<typeof Booking> = {
 				customer_id: customerId,
 				is_active: true,
 			};
@@ -862,41 +907,56 @@ router.get(
 			}
 
 			const bookings = await Booking.find(filter)
-				.populate<{ customer_id: PopulatedCustomer }>({
-					path: "customer_id",
-					select: "first_name last_name",
-				})
-				.populate<{ photographer_id: PopulatedPhotographer }>({
-					path: "photographer_id",
-					select: "first_name last_name",
-				})
-				.populate<{ services: PopulatedBookingService[] }>({
-					path: "services.service_id",
-					select: "service_name",
-				})
+				.populate<{ customer_id: PopulatedCustomer }>(
+					"customer_id",
+					"first_name last_name email mobile_number profile_image gender"
+				)
+				.populate<{ photographer_id: PopulatedPhotographer }>(
+					"photographer_id",
+					"name"
+				)
+				.populate<{ services: PopulatedBookingService[] }>(
+					"services.service_id",
+					"name"
+				)
 				.sort({ booking_date: -1 })
 				.lean<LeanPopulatedBooking[]>();
 
-			const bookingsResponse: BookingListItem[] = bookings.map((booking) => {
-				const serviceNames = booking.services
-					.map((s) => s.service_id.service_name)
-					.join(", ");
+			const bookingsWithPayment = await Promise.all(
+				bookings.map(async (booking) => {
+					const paymentStatus = await getBookingPaymentStatus(
+						booking._id.toString()
+					);
+					return { booking, paymentStatus };
+				})
+			);
 
-				return {
-					id: String(booking._id),
-					booking_reference: booking.booking_reference,
-					customer_name: `${booking.customer_id.first_name} ${booking.customer_id.last_name}`,
-					services_summary: serviceNames || "No services",
-					booking_date: booking.booking_date,
-					start_time: booking.start_time,
-					location: booking.location,
-					status: booking.status,
-					final_amount: booking.final_amount,
-					photographer_name: booking.photographer_id
-						? `${booking.photographer_id.first_name} ${booking.photographer_id.last_name}`
-						: null,
-				};
-			});
+			const bookingsResponse: BookingListItem[] = bookingsWithPayment.map(
+				({ booking, paymentStatus }) => {
+					const serviceNames = booking.services
+						.map((s: PopulatedBookingService) => s.service_id.name)
+						.join(", ");
+
+					return {
+						_id: String(booking._id),
+						booking_reference: booking.booking_reference,
+						customer_name: `${booking.customer_id.first_name} ${booking.customer_id.last_name}`,
+						services_summary: serviceNames || "No services",
+						booking_date: booking.booking_date,
+						end_time: booking.end_time,
+						start_time: booking.start_time,
+						location: booking.location,
+						status: booking.status,
+						final_amount: booking.final_amount,
+						amount_paid: paymentStatus.amount_paid,
+						remaining_balance: paymentStatus.remaining_balance,
+						is_payment_complete: paymentStatus.is_payment_complete,
+						photographer_name: booking.photographer_id
+							? `${booking.photographer_id.name}`
+							: null,
+					};
+				}
+			);
 
 			res.status(200).json({
 				status: 200,
@@ -914,7 +974,7 @@ router.get(
 	"/analytics/summary",
 	authenticateAmiUserToken,
 	async (
-		req: Request,
+		req: AuthenticatedRequest,
 		res: TypedResponse<BookingAnalyticsResponse>,
 		next: NextFunction
 	) => {
@@ -934,12 +994,11 @@ router.get(
 				cancelledBookings,
 				rescheduledBookings,
 				todayBookings,
-				upcomingBookings,
 			] = await Promise.all([
 				Booking.countDocuments({ is_active: true }),
 				Booking.countDocuments({ status: "Pending", is_active: true }),
 				Booking.countDocuments({ status: "Confirmed", is_active: true }),
-				Booking.countDocuments({ status: "Assigned", is_active: true }),
+
 				Booking.countDocuments({ status: "Ongoing", is_active: true }),
 				Booking.countDocuments({ status: "Completed", is_active: true }),
 				Booking.countDocuments({ status: "Cancelled", is_active: true }),
@@ -974,6 +1033,41 @@ router.get(
 			const totalRevenue =
 				revenueResult.length > 0 ? revenueResult[0].total_revenue : 0;
 
+			// Calculate total paid from completed transactions
+			const paidResult = await Transaction.aggregate([
+				{
+					$match: {
+						status: "Completed",
+						transaction_type: {
+							$in: ["Payment", "Partial", "Deposit", "Balance"],
+						},
+						is_active: true,
+					},
+				},
+				{
+					$group: {
+						_id: null,
+						total_paid: { $sum: "$amount" },
+					},
+				},
+			]);
+
+			const totalPaid = paidResult.length > 0 ? paidResult[0].total_paid : 0;
+
+			// Calculate pending payments
+			const allBookings = await Booking.find({
+				status: { $nin: ["Cancelled"] },
+				is_active: true,
+			}).lean<LeanPopulatedBooking[]>();
+
+			let totalPendingPayment = 0;
+			for (const booking of allBookings) {
+				const paymentStatus = await getBookingPaymentStatus(
+					booking._id.toString()
+				);
+				totalPendingPayment += paymentStatus.remaining_balance;
+			}
+
 			res.status(200).json({
 				status: 200,
 				message: "Booking analytics fetched successfully!",
@@ -987,8 +1081,9 @@ router.get(
 					cancelled_bookings: cancelledBookings,
 					rescheduled_bookings: rescheduledBookings,
 					total_revenue: totalRevenue,
+					total_paid: totalPaid,
+					total_pending_payment: totalPendingPayment,
 					today_bookings: todayBookings,
-					upcoming_bookings: upcomingBookings,
 				},
 			});
 		} catch (error) {
@@ -1001,8 +1096,8 @@ router.get(
 router.get(
 	"/reference/:reference",
 	async (
-		req: Request<{ reference: string }>,
-		res: TypedResponse<LeanPopulatedBooking>,
+		req: AuthenticatedRequest,
+		res: TypedResponse<BookingWithPaymentStatus>,
 		next: NextFunction
 	) => {
 		try {
@@ -1016,36 +1111,45 @@ router.get(
 				booking_reference: reference.toUpperCase(),
 				is_active: true,
 			})
-				.populate<{ customer_id: PopulatedCustomer }>({
-					path: "customer_id",
-					select: "first_name last_name email phone_number",
-				})
-				.populate<{ package_id: PopulatedPackage }>({
-					path: "package_id",
-					select: "package_name package_price description is_available",
-				})
-				.populate<{ photographer_id: PopulatedPhotographer }>({
-					path: "photographer_id",
-					select: "first_name last_name email specialization",
-				})
-				.populate<{ promo_id: PopulatedPromo }>({
-					path: "promo_id",
-					select: "promo_code discount_type discount_value",
-				})
-				.populate<{ services: PopulatedBookingService[] }>({
-					path: "services.service_id",
-					select: "service_name category price duration_minutes",
-				})
+				.populate<{ customer_id: PopulatedCustomer }>(
+					"customer_id",
+					"first_name last_name email mobile_number profile_image gender"
+				)
+				.populate<{ package_id: PopulatedPackage }>(
+					"package_id",
+					"name package_price description is_available"
+				)
+				.populate<{ photographer_id: PopulatedPhotographer }>(
+					"photographer_id",
+					"name email specialties bio profile_image mobile_number"
+				)
+				.populate<{ promo_id: PopulatedPromo }>(
+					"promo_id",
+					"promo_code discount_type discount_value"
+				)
+				.populate<{ services: PopulatedBookingService[] }>(
+					"services.service_id",
+					"name category price duration_minutes"
+				)
 				.lean<LeanPopulatedBooking>();
 
 			if (!booking) {
 				throw customError(404, "Booking not found");
 			}
 
+			const paymentStatus = await getBookingPaymentStatus(
+				booking._id.toString()
+			);
+
+			const bookingWithPayment: BookingWithPaymentStatus = {
+				...booking,
+				payment_status: paymentStatus,
+			};
+
 			res.status(200).json({
 				status: 200,
 				message: "Booking fetched successfully!",
-				data: booking,
+				data: bookingWithPayment,
 			});
 		} catch (error) {
 			next(error);

@@ -7,20 +7,27 @@ import { verifyToken } from "../utils/tokenHandler";
 import { customError } from "./errorHandler"; // Import your custom error function
 
 // Extend Request type to include user
-export interface AuthenticatedRequest extends Request {
-	user?: {
-		_id: string;
-		email: string;
-		username: string;
-		first_name: string;
-		last_name: string;
-		role_id: string;
-		role_and_permissions?: {
-			name: string;
-			description?: string;
-			permissions: string[];
-		} | null;
-	};
+export interface AuthenticatedUser {
+	_id: string;
+	email: string;
+	username: string;
+	first_name: string;
+	last_name: string;
+	role_id: string;
+	role_and_permissions?: {
+		name: string;
+		description?: string;
+		permissions: string[];
+	} | null;
+}
+
+export interface AuthenticatedRequest<
+	Params = Record<string, any>,
+	ResBody = any,
+	ReqBody = any,
+	ReqQuery = Record<string, any>
+> extends Request<Params, ResBody, ReqBody, ReqQuery> {
+	user?: AuthenticatedUser;
 	token?: string;
 }
 

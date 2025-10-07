@@ -1,15 +1,12 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 import { MetaData } from "../types/base.types";
-import { WeeklyScheduleItem } from "./Photographer";
-import { Package } from "./Package";
 import { customError } from "../middleware/errorHandler";
 import { parse } from "date-fns";
 
-// Updated Booking status enum with "Assigned" status
+// Booking status enum
 export const BookingStatusEnum = {
 	Pending: "Pending",
 	Confirmed: "Confirmed",
-	Assigned: "Assigned", // New status when photographer is assigned
 	Ongoing: "Ongoing",
 	Completed: "Completed",
 	Cancelled: "Cancelled",
@@ -18,17 +15,7 @@ export const BookingStatusEnum = {
 
 export type BookingStatus = keyof typeof BookingStatusEnum;
 
-// Payment method enum
-export const PaymentMethodEnum = {
-	Cash: "Cash",
-	GCash: "GCash",
-	BankTransfer: "BankTransfer",
-	Card: "Card",
-} as const;
-
-export type PaymentMethod = keyof typeof PaymentMethodEnum;
-
-// Enhanced BookingModel with services tracking
+// Refactored BookingModel - transaction fields removed
 export type BookingModel = Document &
 	MetaData & {
 		booking_reference: string;
@@ -57,28 +44,29 @@ export type BookingModel = Document &
 		special_requests?: string | null;
 		status: BookingStatus;
 
-		// Payment fields
+		// Pricing fields (keep these for booking calculation)
 		total_amount: number;
 		discount_amount: number;
 		final_amount: number;
-		amount_paid: number; // Track how much has been paid
-		method_of_payment?: PaymentMethod | null;
-		payment_images: string[]; // URLs/paths to payment proof images
-		is_partially_paid: boolean;
-		is_payment_complete: boolean;
 
+		// Status timestamps
 		booking_confirmed_at?: Date | null;
-		photographer_assigned_at?: Date | null;
 		booking_completed_at?: Date | null;
 		cancelled_reason?: string | null;
 		rescheduled_from?: Date | null;
+
+		// Notes and ratings
 		photographer_notes?: string | null;
 		client_rating?: number | null;
 		photographer_rating?: number | null;
+
+		// Virtual field - will be populated from Transaction model
+		amount_paid?: number;
+		is_payment_complete?: boolean;
 	};
 
-// Enhanced booking schema
-const enhancedBookingSchema = new Schema<BookingModel>(
+// Refactored booking schema
+const bookingSchema = new Schema<BookingModel>(
 	{
 		booking_reference: {
 			type: String,
@@ -209,7 +197,7 @@ const enhancedBookingSchema = new Schema<BookingModel>(
 			default: "Pending",
 		},
 
-		// Payment fields
+		// Pricing fields (calculation only, not payment tracking)
 		total_amount: {
 			type: Number,
 			required: [true, "Total amount is required"],
@@ -225,40 +213,9 @@ const enhancedBookingSchema = new Schema<BookingModel>(
 			required: [true, "Final amount is required"],
 			min: [0, "Final amount cannot be negative"],
 		},
-		amount_paid: {
-			type: Number,
-			min: [0, "Amount paid cannot be negative"],
-			default: 0,
-		},
-		method_of_payment: {
-			type: String,
-			enum: {
-				values: Object.values(PaymentMethodEnum),
-				message: "{VALUE} is not a valid payment method",
-			},
-			default: null,
-		},
-		payment_images: {
-			type: [String],
-			default: [],
-			validate: {
-				validator: function (images: string[]) {
-					return images.length <= 10; // Max 10 payment proof images
-				},
-				message: "Cannot upload more than 10 payment images",
-			},
-		},
-		is_partially_paid: {
-			type: Boolean,
-			default: false,
-		},
-		is_payment_complete: {
-			type: Boolean,
-			default: false,
-		},
 
+		// Status timestamps
 		booking_confirmed_at: { type: Date, default: null },
-		photographer_assigned_at: { type: Date, default: null },
 		booking_completed_at: { type: Date, default: null },
 		cancelled_reason: {
 			type: String,
@@ -267,6 +224,8 @@ const enhancedBookingSchema = new Schema<BookingModel>(
 			default: null,
 		},
 		rescheduled_from: { type: Date, default: null },
+
+		// Notes and ratings
 		photographer_notes: {
 			type: String,
 			trim: true,
@@ -297,10 +256,13 @@ const enhancedBookingSchema = new Schema<BookingModel>(
 	},
 	{
 		timestamps: { createdAt: "created_at", updatedAt: "updated_at" },
+		toJSON: { virtuals: true },
+		toObject: { virtuals: true },
 	}
 );
 
-enhancedBookingSchema.pre("validate", function (next) {
+// Auto-generate booking reference
+bookingSchema.pre("validate", function (next) {
 	if (this.isNew && !this.booking_reference) {
 		const randomStr = Math.random().toString(36).substr(2, 8).toUpperCase();
 		this.booking_reference = `BK-${randomStr}`;
@@ -308,8 +270,8 @@ enhancedBookingSchema.pre("validate", function (next) {
 	next();
 });
 
-// Enhanced pre-save validation
-enhancedBookingSchema.pre("save", async function (next) {
+// Pre-save validation
+bookingSchema.pre("save", async function (next) {
 	try {
 		// Validate package or services
 		if (!this.package_id && (!this.services || this.services.length === 0)) {
@@ -370,24 +332,7 @@ enhancedBookingSchema.pre("save", async function (next) {
 				.padStart(2, "0")}`;
 		}
 
-		// Payment status
-		if (this.amount_paid > 0 && this.amount_paid < this.final_amount) {
-			this.is_partially_paid = true;
-			this.is_payment_complete = false;
-		} else if (this.amount_paid >= this.final_amount) {
-			this.is_partially_paid = false;
-			this.is_payment_complete = true;
-		} else {
-			this.is_partially_paid = false;
-			this.is_payment_complete = false;
-		}
-
-		// Validate amount_paid
-		if (this.amount_paid > this.final_amount) {
-			return next(customError(400, "Amount paid cannot exceed final amount"));
-		}
-
-		// Photographer availability
+		// Photographer availability validation
 		if (
 			this.photographer_id &&
 			(this.isNew ||
@@ -444,14 +389,53 @@ enhancedBookingSchema.pre("save", async function (next) {
 	}
 });
 
-// Helper function
-function timeToMinutes(timeString: string): number {
-	const [hours, minutes] = timeString.split(":").map(Number);
-	return hours * 60 + minutes;
-}
+// Virtual field to get total amount paid from transactions
+bookingSchema.virtual("amount_paid").get(async function () {
+	const Transaction = mongoose.model("Transaction");
+	const result = await Transaction.aggregate([
+		{
+			$match: {
+				booking_id: this._id,
+				status: "Completed",
+			},
+		},
+		{
+			$group: {
+				_id: null,
+				total: { $sum: "$amount" },
+			},
+		},
+	]);
+	return result.length > 0 ? result[0].total : 0;
+});
 
-// Export enhanced models
-export const Booking = mongoose.model<BookingModel>(
-	"Booking",
-	enhancedBookingSchema
-);
+bookingSchema.virtual("is_payment_complete").get(function () {
+	const amountPaid = this.amount_paid ?? 0;
+	const finalAmount = this.final_amount ?? 0;
+	return amountPaid >= finalAmount;
+});
+
+// Instance method to get payment status
+bookingSchema.methods.getPaymentStatus = async function () {
+	const Transaction = mongoose.model("Transaction");
+	const transactions = await Transaction.find({
+		booking_id: this._id,
+		status: "Completed",
+	});
+
+	const amountPaid = transactions.reduce((sum, txn) => sum + txn.amount, 0);
+
+	return {
+		total_amount: this.total_amount,
+		discount_amount: this.discount_amount,
+		final_amount: this.final_amount,
+		amount_paid: amountPaid,
+		remaining_balance: this.final_amount - amountPaid,
+		is_partially_paid: amountPaid > 0 && amountPaid < this.final_amount,
+		is_payment_complete: amountPaid >= this.final_amount,
+		transactions: transactions,
+	};
+};
+
+// Export model
+export const Booking = mongoose.model<BookingModel>("Booking", bookingSchema);
