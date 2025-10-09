@@ -17,6 +17,7 @@ import adminBookingRoutes from "./routes/admin.routes/ami.booking.routes";
 import adminPromoRoutes from "./routes/admin.routes/ami.promo.routes";
 import adminPhotographersRoutes from "./routes/admin.routes/ami.photographer.routes";
 import adminEmailRoutes from "./routes/admin.routes/ami.email.routes";
+import adminTransactionRoutes from "./routes/admin.routes/ami.transaction.routes";
 
 // CLIENT ROUTES
 import clientServiceRoutes from "./routes/client.routes/sf.service.routes";
@@ -24,6 +25,7 @@ import clientPackageRoutes from "./routes/client.routes/sf.package.routes";
 import clientPromoRoutes from "./routes/client.routes/sf.promo.routes";
 import clientPhotographersRoutes from "./routes/client.routes/sf.photographer.routes";
 import clientBookingRoutes from "./routes/client.routes/sf.booking.routes";
+import clientTransactionRoutes from "./routes/client.routes/sf.transaction.routes";
 
 dotenv.config();
 validateEnvironment();
@@ -48,6 +50,7 @@ app.use("/api/admin/packages", adminPackageRoutes);
 app.use("/api/admin/bookings", adminBookingRoutes);
 app.use("/api/admin/promos", adminPromoRoutes);
 app.use("/api/admin/emails", adminEmailRoutes);
+app.use("/api/admin/transactions", adminTransactionRoutes);
 
 // Client Routes
 app.use("/api/client/photographers", clientPhotographersRoutes);
@@ -55,6 +58,7 @@ app.use("/api/client/services", clientServiceRoutes);
 app.use("/api/client/packages", clientPackageRoutes);
 app.use("/api/client/promos", clientPromoRoutes);
 app.use("/api/client/booking", clientBookingRoutes);
+app.use("/api/client/transactions", clientTransactionRoutes);
 
 // Health check
 app.get("/health", (req: Request, res: Response) => {

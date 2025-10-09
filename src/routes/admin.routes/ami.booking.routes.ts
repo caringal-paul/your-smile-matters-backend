@@ -26,6 +26,7 @@ const router = Router();
 // Populated entity types
 interface PopulatedCustomer {
 	_id: Types.ObjectId;
+	customer_no: string;
 	first_name: string;
 	last_name: string;
 	email: string;
@@ -326,7 +327,7 @@ router.get(
 			const bookings = await Booking.find(filter)
 				.populate<{ customer_id: PopulatedCustomer }>(
 					"customer_id",
-					"first_name last_name email mobile_number profile_image gender"
+					"first_name last_name email mobile_number profile_image gender customer_no"
 				)
 				.populate<{ photographer_id: PopulatedPhotographer }>(
 					"photographer_id",
@@ -426,7 +427,7 @@ router.get(
 			const booking = await Booking.findById(id)
 				.populate<{ customer_id: PopulatedCustomer }>(
 					"customer_id",
-					"first_name last_name email mobile_number profile_image gender"
+					"first_name last_name email mobile_number profile_image gender customer_no"
 				)
 				.populate<{ package_id: PopulatedPackage }>(
 					"package_id",
@@ -517,7 +518,7 @@ router.patch(
 			const populatedBooking = await Booking.findById(booking._id)
 				.populate<{ customer_id: PopulatedCustomer }>(
 					"customer_id",
-					"first_name last_name email mobile_number profile_image gender"
+					"first_name last_name email mobile_number profile_image gender customer_no"
 				)
 				.populate<{ package_id: PopulatedPackage }>(
 					"package_id",
@@ -712,7 +713,7 @@ router.patch(
 			const populatedBooking = await Booking.findById(booking._id)
 				.populate<{ customer_id: PopulatedCustomer }>(
 					"customer_id",
-					"first_name last_name email mobile_number profile_image gender"
+					"first_name last_name email mobile_number profile_image gender customer_no"
 				)
 				.populate<{ package_id: PopulatedPackage }>(
 					"package_id",
@@ -909,7 +910,7 @@ router.get(
 			const bookings = await Booking.find(filter)
 				.populate<{ customer_id: PopulatedCustomer }>(
 					"customer_id",
-					"first_name last_name email mobile_number profile_image gender"
+					"first_name last_name email mobile_number profile_image gender customer_no"
 				)
 				.populate<{ photographer_id: PopulatedPhotographer }>(
 					"photographer_id",
@@ -1113,7 +1114,7 @@ router.get(
 			})
 				.populate<{ customer_id: PopulatedCustomer }>(
 					"customer_id",
-					"first_name last_name email mobile_number profile_image gender"
+					"first_name last_name email mobile_number profile_image gender customer_no"
 				)
 				.populate<{ package_id: PopulatedPackage }>(
 					"package_id",

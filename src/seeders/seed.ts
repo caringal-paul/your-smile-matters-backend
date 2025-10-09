@@ -20,7 +20,12 @@ import {
 	isAfter,
 	parse,
 } from "date-fns";
-import { PaymentMethodEnum } from "../models/Transaction";
+import {
+	PaymentMethodEnum,
+	Transaction,
+	TransactionStatus,
+	TransactionType,
+} from "../models/Transaction";
 
 const MONGODB_URI =
 	process.env.MONGODB_URI || "mongodb://localhost:27017/capstone-dev";
@@ -991,6 +996,215 @@ export const seedBookings = async (admin: any) => {
 	return createdBookings;
 };
 
+export const seedTransactions = async (admin: any) => {
+	try {
+		// Clear existing transactions
+		await Transaction.deleteMany({});
+
+		const bookings = await Booking.find().populate("customer_id");
+		if (bookings.length === 0) {
+			console.error("❌ No bookings found. Please seed bookings first.");
+			return;
+		}
+
+		const createdTransactions = [];
+
+		// Create at least 8 transactions across different bookings
+		for (let i = 0; i < Math.min(8, bookings.length); i++) {
+			const booking = bookings[i];
+
+			// Generate a unique transaction reference
+			const generateTransactionRef = () => {
+				const randomStr = Math.random().toString(36).substr(2, 8).toUpperCase();
+				return `TXN-${randomStr}`;
+			};
+
+			// Create different types of transactions
+			const transactionTypes = [
+				{
+					type: "Payment" as TransactionType,
+					amount: booking.final_amount, // Full payment
+					status: "Completed" as TransactionStatus,
+				},
+				{
+					type: "Partial" as TransactionType,
+					amount: Math.floor(booking.final_amount * 0.5), // 50% partial payment
+					status: "Completed" as TransactionStatus,
+				},
+				{
+					type: "Balance" as TransactionType,
+					amount: Math.floor(booking.final_amount * 0.5), // Remaining balance
+					status: "Completed" as TransactionStatus,
+				},
+				{
+					type: "Payment" as TransactionType,
+					amount: booking.final_amount,
+					status: "Pending" as TransactionStatus,
+				},
+				{
+					type: "Payment" as TransactionType,
+					amount: booking.final_amount,
+					status: "Failed" as TransactionStatus,
+				},
+			];
+
+			const transactionConfig = transactionTypes[i % transactionTypes.length];
+
+			// Ensure amount doesn't exceed remaining balance for payment types
+			let transactionAmount = transactionConfig.amount;
+			if (["Payment", "Partial", "Balance"].includes(transactionConfig.type)) {
+				// Check existing completed transactions for this booking
+				const existingTransactions = await Transaction.find({
+					booking_id: booking._id,
+					status: "Completed",
+					transaction_type: { $in: ["Payment", "Partial", "Balance"] },
+				});
+
+				const totalPaid = existingTransactions.reduce(
+					(sum, txn) => sum + txn.amount,
+					0
+				);
+				const remainingBalance = booking.final_amount - totalPaid;
+
+				// Adjust amount if it would exceed remaining balance
+				if (transactionAmount > remainingBalance) {
+					transactionAmount = remainingBalance;
+				}
+			}
+
+			// Skip if no remaining balance for payment transactions
+			if (
+				transactionAmount <= 0 &&
+				["Payment", "Partial", "Balance"].includes(transactionConfig.type)
+			) {
+				continue;
+			}
+
+			const paymentMethod = faker.helpers.arrayElement(
+				Object.values(PaymentMethodEnum)
+			);
+
+			const transactionData = {
+				transaction_reference: generateTransactionRef(),
+				booking_id: booking._id,
+				customer_id: booking.customer_id._id,
+				amount: transactionAmount,
+				transaction_type: transactionConfig.type,
+				payment_method: paymentMethod,
+				status: transactionConfig.status,
+				payment_proof_images:
+					paymentMethod === "GCash"
+						? [
+								faker.image.urlLoremFlickr({ category: "business" }),
+								faker.image.urlLoremFlickr({ category: "technology" }),
+						  ] // Always provide at least one image for GCash
+						: [],
+				external_reference:
+					paymentMethod === "GCash"
+						? `GCASH-${faker.string.alphanumeric(10).toUpperCase()}`
+						: null,
+				transaction_date: faker.date.recent({ days: 30 }),
+				notes: faker.lorem.sentence(),
+				created_by: admin._id,
+				processed_at:
+					transactionConfig.status === "Completed"
+						? faker.date.recent({ days: 25 })
+						: undefined,
+				failed_at:
+					transactionConfig.status === "Failed"
+						? faker.date.recent({ days: 20 })
+						: undefined,
+				failure_reason:
+					transactionConfig.status === "Failed"
+						? faker.helpers.arrayElement([
+								"Insufficient funds",
+								"Payment gateway error",
+								"Invalid payment details",
+								"Network timeout",
+						  ])
+						: undefined,
+			};
+
+			// Set appropriate timestamps based on status
+			if (transactionConfig.status === "Completed") {
+				transactionData.processed_at = faker.date.recent({ days: 25 });
+			} else if (transactionConfig.status === "Failed") {
+				transactionData.failed_at = faker.date.recent({ days: 20 });
+				transactionData.failure_reason = faker.helpers.arrayElement([
+					"Insufficient funds",
+					"Payment gateway error",
+					"Invalid payment details",
+					"Network timeout",
+				]);
+			}
+
+			const transaction = new Transaction(transactionData);
+			await transaction.save();
+			createdTransactions.push(transaction);
+		}
+
+		// Create a few refund transactions
+		const completedTransactions = createdTransactions.filter(
+			(t) => t.status === "Completed"
+		);
+
+		for (let i = 0; i < Math.min(2, completedTransactions.length); i++) {
+			const originalTransaction = completedTransactions[i];
+			const refundAmount = Math.floor(originalTransaction.amount * 0.3); // 30% refund
+
+			if (refundAmount > 0) {
+				const refundTransaction = new Transaction({
+					transaction_reference: `TXN-${Math.random()
+						.toString(36)
+						.substr(2, 8)
+						.toUpperCase()}`,
+					booking_id: originalTransaction.booking_id,
+					customer_id: originalTransaction.customer_id,
+					amount: refundAmount,
+					transaction_type: "Refund",
+					payment_method: originalTransaction.payment_method,
+					status: "Completed",
+					original_transaction_id: originalTransaction._id,
+					payment_proof_images:
+						originalTransaction.payment_method === "GCash"
+							? [
+									"https://via.placeholder.com/400x600/ffffff/000000?text=GCash+Refund+Receipt",
+							  ]
+							: [],
+					refund_reason: faker.helpers.arrayElement([
+						"Customer cancellation",
+						"Service not delivered",
+						"Quality issues",
+						"Scheduling conflict",
+					]),
+					transaction_date: faker.date.recent({ days: 15 }),
+					processed_at: faker.date.recent({ days: 10 }),
+					refunded_at: faker.date.recent({ days: 10 }),
+					created_by: admin._id,
+				});
+
+				await refundTransaction.save();
+				createdTransactions.push(refundTransaction);
+
+				// Update the original transaction to reflect the refund
+				originalTransaction.refund_transaction_id =
+					refundTransaction._id as mongoose.Types.ObjectId;
+				originalTransaction.status = "Refunded";
+				originalTransaction.refunded_at = refundTransaction.refunded_at;
+				await originalTransaction.save();
+			}
+		}
+
+		console.log(
+			`💳 Seeded ${createdTransactions.length} transactions successfully!`
+		);
+		return createdTransactions;
+	} catch (error) {
+		console.error("❌ Failed to seed transactions:", error);
+		throw error;
+	}
+};
+
 async function runAll() {
 	try {
 		await connect();
@@ -1015,6 +1229,9 @@ async function runAll() {
 
 		console.log("📅 Seeding bookings...");
 		await seedBookings(superAdmin);
+
+		console.log("💳 Seeding transactions...");
+		await seedTransactions(superAdmin);
 
 		console.log("✅ All seeders completed successfully!");
 	} catch (error) {

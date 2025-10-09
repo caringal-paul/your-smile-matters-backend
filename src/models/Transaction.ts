@@ -17,8 +17,6 @@ export type TransactionStatus = keyof typeof TransactionStatusEnum;
 export const PaymentMethodEnum = {
 	Cash: "Cash",
 	GCash: "GCash",
-	BankTransfer: "BankTransfer",
-	Card: "Card",
 } as const;
 
 export type PaymentMethod = keyof typeof PaymentMethodEnum;
@@ -28,7 +26,6 @@ export const TransactionTypeEnum = {
 	Payment: "Payment",
 	Refund: "Refund",
 	Partial: "Partial",
-	Deposit: "Deposit",
 	Balance: "Balance",
 } as const;
 
@@ -43,7 +40,7 @@ export type TransactionMethods = {
 	createRefund(
 		refundAmount: number,
 		refundReason: string,
-		processedBy: Types.ObjectId
+		processedBy: string
 	): Promise<TransactionModel>;
 };
 
@@ -242,14 +239,13 @@ transactionSchema.pre("save", async function (next) {
 			if (
 				this.transaction_type === "Payment" ||
 				this.transaction_type === "Partial" ||
-				this.transaction_type === "Deposit" ||
 				this.transaction_type === "Balance"
 			) {
 				const completedTransactions = await Transaction.find({
 					booking_id: this.booking_id,
 					status: "Completed",
 					transaction_type: {
-						$in: ["Payment", "Partial", "Deposit", "Balance"],
+						$in: ["Payment", "Partial", "Balance"],
 					},
 				});
 
@@ -321,8 +317,7 @@ transactionSchema.pre("save", async function (next) {
 		// Validate payment proof for digital payments
 		if (
 			this.isNew &&
-			(this.payment_method === "GCash" ||
-				this.payment_method === "BankTransfer") &&
+			this.payment_method === "GCash" &&
 			this.payment_proof_images.length === 0
 		) {
 			return next(
@@ -380,7 +375,7 @@ transactionSchema.methods.markAsFailed = async function (
 transactionSchema.methods.createRefund = async function (
 	refundAmount: number,
 	refundReason: string,
-	processedBy: Types.ObjectId
+	processedBy: string
 ) {
 	if (this.status !== "Completed") {
 		throw customError(400, "Can only refund completed transactions");
@@ -409,50 +404,6 @@ transactionSchema.methods.createRefund = async function (
 
 	await refundTransaction.save();
 	return refundTransaction;
-};
-
-// Static method: Get booking transaction summary
-transactionSchema.statics.getBookingSummary = async function (
-	bookingId: Types.ObjectId
-) {
-	const transactions = await this.find({
-		booking_id: bookingId,
-		is_active: true,
-	}).sort({ transaction_date: 1 });
-
-	const completed = transactions.filter(
-		(t: TransactionModel) => t.status === "Completed"
-	);
-	const pending = transactions.filter(
-		(t: TransactionModel) => t.status === "Pending"
-	);
-	const failed = transactions.filter(
-		(t: TransactionModel) => t.status === "Failed"
-	);
-
-	const totalPaid = completed
-		.filter(
-			(t: TransactionModel) =>
-				t.transaction_type === "Payment" ||
-				t.transaction_type === "Partial" ||
-				t.transaction_type === "Deposit" ||
-				t.transaction_type === "Balance"
-		)
-		.reduce((sum: number, t: TransactionModel) => sum + t.amount, 0);
-
-	const totalRefunded = completed
-		.filter((t: TransactionModel) => t.transaction_type === "Refund")
-		.reduce((sum: number, t: TransactionModel) => sum + t.amount, 0);
-
-	return {
-		all_transactions: transactions,
-		completed_transactions: completed,
-		pending_transactions: pending,
-		failed_transactions: failed,
-		total_paid: totalPaid,
-		total_refunded: totalRefunded,
-		net_amount: totalPaid - totalRefunded,
-	};
 };
 
 // Indexes for performance
