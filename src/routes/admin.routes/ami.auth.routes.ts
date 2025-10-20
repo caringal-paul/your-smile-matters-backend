@@ -11,7 +11,7 @@ import {
 	AuthenticatedRequest,
 	authenticateAmiUserToken,
 	invalidatedTokens,
-} from "../../middleware/authMiddleware";
+} from "../../middleware/authAmiMiddleware";
 import { customError } from "../../middleware/errorHandler";
 import { TypedResponse } from "../../types/base.types";
 import config from "../../config/token";

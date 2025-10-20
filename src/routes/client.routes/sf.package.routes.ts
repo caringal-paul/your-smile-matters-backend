@@ -31,9 +31,6 @@ interface GetAllPackageDTO {
 	description?: string | null;
 	image?: string | null;
 	package_price: number;
-	// discount_percentage?: number | null;
-	// discount_amount?: number | null;
-	// final_price?: number;
 	looks: number;
 	custom_duration_minutes?: number | null;
 	is_available: boolean;

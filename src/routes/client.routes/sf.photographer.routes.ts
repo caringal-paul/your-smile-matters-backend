@@ -1,12 +1,10 @@
 import { Router, Request, NextFunction } from "express";
 import { Types } from "mongoose";
 import { Photographer, PhotographerModel } from "../../models/Photographer";
-import {
-	authenticateAmiUserToken,
-	AuthenticatedRequest,
-} from "../../middleware/authMiddleware";
 import { TypedResponse } from "../../types/base.types";
 import { Service } from "../../models/Service";
+import { authenticateCustomerToken } from "../../middleware/authCustomerMiddleware";
+import { Booking } from "../../models/Booking";
 
 const router = Router();
 
@@ -57,10 +55,6 @@ interface AvailablePhotographerSlot {
 	availableSlots: string[];
 }
 
-interface AvailablePhotographerResponse {
-	photographer: PhotographerResponse;
-}
-
 interface PhotographerWithSlots {
 	photographer: PhotographerModel;
 	availableSlots: string[];
@@ -96,7 +90,6 @@ function convertToResponse(
  */
 router.post(
 	"/availability/by-date",
-	authenticateAmiUserToken,
 	async (req: Request, res: TypedResponse<string[]>, next: NextFunction) => {
 		try {
 			const { date, session_duration_minutes, service_ids } = req.body;
@@ -198,14 +191,23 @@ router.post(
  */
 router.post(
 	"/availability/by-time-range",
-	authenticateAmiUserToken,
 	async (
 		req: Request,
-		res: TypedResponse<AvailablePhotographerResponse[]>,
+		res: TypedResponse<
+			(PhotographerModel & {
+				completed_bookings: number;
+				total_bookings: number;
+			})[]
+		>,
 		next: NextFunction
 	) => {
 		try {
-			const { date, start_time, end_time } = req.body;
+			const {
+				date,
+				start_time,
+				end_time,
+				session_duration_minutes = 120,
+			} = req.body;
 
 			if (!date || !start_time || !end_time) {
 				return res.status(400).json({
@@ -232,35 +234,46 @@ router.post(
 				});
 			}
 
-			// Get photographers available for this specific time range
 			const photographerModel = Photographer as typeof Photographer & {
-				getPhotographersByTimeRange: (
+				getAvailablePhotographers: (
 					date: Date,
 					startTime: string,
-					endTime: string
-				) => Promise<PhotographerWrapper[]>;
+					endTime: string,
+					sessionDurationMinutes?: number
+				) => Promise<PhotographerModel[]>;
 			};
 
-			const results = await photographerModel.getPhotographersByTimeRange(
-				targetDate,
-				start_time,
-				end_time
-			);
+			const availablePhotographers =
+				await photographerModel.getAvailablePhotographers(
+					targetDate,
+					start_time,
+					end_time,
+					session_duration_minutes
+				);
 
-			const response: AvailablePhotographerResponse[] = results.map(
-				(result) => {
-					const photographerObj =
-						result.photographer.toObject() as PhotographerLean;
+			const results = await Promise.all(
+				availablePhotographers.map(async (photographer) => {
+					const total_bookings = await Booking.countDocuments({
+						photographer_id: photographer._id,
+					});
+
+					const completed_bookings = await Booking.countDocuments({
+						photographer_id: photographer._id,
+						status: "Completed",
+					});
+
 					return {
-						photographer: convertToResponse(photographerObj),
+						...photographer.toObject(),
+						total_bookings,
+						completed_bookings,
 					};
-				}
+				})
 			);
 
 			res.status(200).json({
 				status: 200,
-				message: `Found ${response.length} photographers available for the selected time`,
-				data: response,
+				message: `Found ${results.length} photographers available from ${start_time} to ${end_time}`,
+				data: results,
 			});
 		} catch (error) {
 			next(error);
@@ -275,9 +288,8 @@ router.post(
  */
 router.get(
 	"/:id/availability/slots",
-	authenticateAmiUserToken,
 	async (
-		req: AuthenticatedRequest,
+		req: Request,
 		res: TypedResponse<{ slots: string[] }>,
 		next: NextFunction
 	) => {
@@ -349,9 +361,8 @@ router.get(
  */
 router.get(
 	"/search/by-categories",
-	authenticateAmiUserToken,
 	async (
-		req: AuthenticatedRequest,
+		req: Request,
 		res: TypedResponse<PhotographerResponse[]>,
 		next: NextFunction
 	) => {

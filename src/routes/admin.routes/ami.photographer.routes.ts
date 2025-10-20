@@ -4,7 +4,7 @@ import { Photographer, PhotographerModel } from "../../models/Photographer";
 import {
 	authenticateAmiUserToken,
 	AuthenticatedRequest,
-} from "../../middleware/authMiddleware";
+} from "../../middleware/authAmiMiddleware";
 import { TypedResponse } from "../../types/base.types";
 import { customError } from "../../middleware/errorHandler";
 

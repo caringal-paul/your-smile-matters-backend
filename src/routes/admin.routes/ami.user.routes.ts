@@ -6,7 +6,7 @@ import { MetaData, TypedResponse } from "../../types/base.types";
 import {
 	AuthenticatedRequest,
 	authenticateAmiUserToken,
-} from "../../middleware/authMiddleware";
+} from "../../middleware/authAmiMiddleware";
 import { requirePermission } from "../../middleware/permissionMiddleware";
 import { generateRandomPassword } from "../../utils/generateRandomValues";
 import { hashPassword } from "../../utils/tokenHandler";

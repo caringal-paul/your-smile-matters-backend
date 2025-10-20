@@ -6,7 +6,14 @@ import {
 } from "../constants/service-category.constant";
 import { Service } from "./Service";
 import { Booking } from "./Booking";
-import { addMinutes, format, isAfter, isBefore, parse } from "date-fns";
+import {
+	addMinutes,
+	format,
+	isAfter,
+	isBefore,
+	isSameDay,
+	parse,
+} from "date-fns";
 
 // Day of week enum using text for easier frontend handling
 export const DayOfWeekEnum = {
@@ -472,33 +479,65 @@ photographerSchema.methods.getAvailableSlots = async function (
 // FOR GETTING AVAILABLE SLOTS
 photographerSchema.statics.getAvailablePhotographers = async function (
 	targetDate: Date,
+	startTime: string,
+	endTime: string,
 	sessionDurationMinutes: number = 120
 ) {
 	const photographers = await this.find();
 
-	const results: {
-		photographer: PhotographerModel;
-		availableSlots: string[];
-	}[] = [];
+	const parseTimeToMinutes = (timeStr: string) => {
+		timeStr = timeStr.trim();
+
+		// If it contains AM or PM → parse as 12h format
+		if (/am|pm/i.test(timeStr)) {
+			const [time, period] = timeStr.split(" ");
+			const [hours, minutes] = time.split(":").map(Number);
+
+			let hour24 = hours;
+			if (period.toLowerCase() === "pm" && hours !== 12) hour24 += 12;
+			if (period.toLowerCase() === "am" && hours === 12) hour24 = 0;
+
+			return hour24 * 60 + minutes;
+		}
+
+		// Otherwise assume 24h format
+		const [hours, minutes] = timeStr.split(":").map(Number);
+		return hours * 60 + minutes;
+	};
+
+	const startMinutes = parseTimeToMinutes(startTime);
+	const endMinutes = parseTimeToMinutes(endTime);
+
+	const availablePhotographers: PhotographerModel[] = [];
 
 	for (const photographer of photographers) {
-		const slots = await photographer.getAvailableSlots(
+		const slots: string[] = await photographer.getAvailableSlots(
 			targetDate,
 			sessionDurationMinutes
 		);
 
-		if (slots.length > 0) {
-			results.push({
-				photographer,
-				availableSlots: slots,
-			});
+		// Filter slots by requested time range
+		const hasMatchingSlot = slots.some((slot) => {
+			const [slotStartStr, slotEndStr] = slot.split(" - ").map((t) => t.trim());
+
+			const slotStartMinutes = parseTimeToMinutes(slotStartStr);
+			const slotEndMinutes = parseTimeToMinutes(slotEndStr);
+			console.log("slotStartMinutes", slotStartMinutes);
+
+			if (isNaN(slotStartMinutes) || isNaN(slotEndMinutes)) return false;
+			console.log("startMinutes", startTime);
+
+			return slotStartMinutes >= startMinutes && slotEndMinutes <= endMinutes;
+		});
+
+		if (hasMatchingSlot) {
+			availablePhotographers.push(photographer);
 		}
 	}
 
-	return results;
+	return availablePhotographers;
 };
 
-// FOR GETTING PHOTOGRAPHERS ON THAT TAKEN TIME
 photographerSchema.statics.getPhotographersByTimeRange = async function (
 	targetDate: Date,
 	startTime: string,
@@ -506,34 +545,42 @@ photographerSchema.statics.getPhotographersByTimeRange = async function (
 ) {
 	const photographers = await this.find();
 
-	const results: {
-		photographer: PhotographerModel;
-	}[] = [];
+	const results: { photographer: PhotographerModel }[] = [];
+
+	const startDateTime = parse(startTime, "HH:mm", targetDate);
+	const endDateTime = parse(endTime, "HH:mm", targetDate);
 
 	for (const photographer of photographers) {
 		const dayOfWeek = targetDate.toLocaleDateString("en-US", {
 			weekday: "long",
 		}) as DayOfWeek;
 
-		// Get the schedule for this date
 		let schedule;
-		if (photographer.date_overrides) {
-			const override = photographer.date_overrides.find(
-				(o: any) => o.date.toDateString() === targetDate.toDateString()
+
+		// ✅ Check for date overrides (OT or Leave)
+		if (photographer.date_overrides && photographer.date_overrides.length > 0) {
+			const override = photographer.date_overrides.find((o: any) =>
+				isSameDay(new Date(o.date), targetDate)
 			);
+
 			if (override) {
-				if (!override.is_available) continue; // Photographer not available
+				// Photographer on leave
+				if (!override.is_available) continue;
+
+				// Use OT hours or fallback to regular schedule
 				schedule =
 					override.custom_hours ||
 					photographer.weekly_schedule?.find(
 						(s: any) => s.day_of_week === dayOfWeek
 					);
 			} else {
+				// No override → regular schedule
 				schedule = photographer.weekly_schedule?.find(
 					(s: any) => s.day_of_week === dayOfWeek
 				);
 			}
 		} else {
+			// No overrides at all → regular schedule
 			schedule = photographer.weekly_schedule?.find(
 				(s: any) => s.day_of_week === dayOfWeek
 			);
@@ -541,17 +588,12 @@ photographerSchema.statics.getPhotographersByTimeRange = async function (
 
 		if (!schedule || !schedule.is_available) continue;
 
-		// Parse start and end times
-		const startDateTime = parse(startTime, "HH:mm", targetDate);
-		const endDateTime = parse(endTime, "HH:mm", targetDate);
-
-		// Check if within working hours
+		// ✅ Check working hours
 		const workStart = parse(schedule.start_time, "HH:mm", targetDate);
 		const workEnd = parse(schedule.end_time, "HH:mm", targetDate);
-
 		if (startDateTime < workStart || endDateTime > workEnd) continue;
 
-		// Check booking conflicts
+		// ✅ Check for booking conflicts
 		const startOfDay = new Date(targetDate);
 		startOfDay.setHours(0, 0, 0, 0);
 		const endOfDay = new Date(targetDate);
@@ -561,15 +603,20 @@ photographerSchema.statics.getPhotographersByTimeRange = async function (
 			photographer_id: photographer._id,
 			booking_date: { $gte: startOfDay, $lte: endOfDay },
 			status: { $nin: ["Cancelled", "Rejected"] },
-		}).select("start_time end_time session_duration_minutes");
+		}).select("start_time session_duration_minutes");
 
-		for (const booking of existingBookings) {
+		const hasConflict = existingBookings.some((booking) => {
 			const bookedStart = parse(booking.start_time, "HH:mm", targetDate);
 			const bookedEnd = addMinutes(
 				bookedStart,
 				booking.session_duration_minutes || 120
 			);
-		}
+			return startDateTime < bookedEnd && endDateTime > bookedStart;
+		});
+
+		if (hasConflict) continue;
+
+		results.push({ photographer });
 	}
 
 	return results;

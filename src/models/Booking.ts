@@ -99,8 +99,8 @@ const bookingSchema = new Schema<BookingModel>(
 		services: [
 			{
 				service_id: {
-					type: Schema.Types.ObjectId,
-					ref: "Service",
+					type: Schema.Types.ObjectId, // ✅ This is CORRECT - tells Mongoose it's an ObjectId
+					ref: "Service", // ✅ This tells populate which model to use
 					required: true,
 				},
 				quantity: {
@@ -142,6 +142,8 @@ const bookingSchema = new Schema<BookingModel>(
 			required: [true, "Booking date is required"],
 			validate: {
 				validator: function (date: Date) {
+					// Skip validation if date is unchanged (not new or not modified)
+					if (!this.isNew && !this.isModified("booking_date")) return true;
 					return date > new Date();
 				},
 				message: "Booking date must be in the future",
@@ -270,7 +272,6 @@ bookingSchema.pre("validate", function (next) {
 	next();
 });
 
-// Pre-save validation
 bookingSchema.pre("save", async function (next) {
 	try {
 		// Validate package or services
@@ -283,8 +284,12 @@ bookingSchema.pre("save", async function (next) {
 			);
 		}
 
-		// Auto-populate services from package
-		if (this.isNew && this.package_id) {
+		// Auto-populate services only if missing
+		if (
+			this.isNew &&
+			this.package_id &&
+			(!this.services || this.services.length === 0)
+		) {
 			const PackageModel = mongoose.model("Package");
 			const selectedPackage = await PackageModel.findById(
 				this.package_id
@@ -294,23 +299,13 @@ bookingSchema.pre("save", async function (next) {
 				return next(customError(404, "Package not found"));
 			}
 
-			if (!this.services || this.services.length === 0) {
-				this.services = selectedPackage.services.map((item: any) => ({
-					service_id: item.service._id,
-					quantity: item.quantity || 1,
-					price_per_unit: item.service.price,
-					total_price: item.service.price * (item.quantity || 1),
-					duration_minutes: item.service.duration_minutes,
-				}));
-			} else {
-				this.services = this.services.map((item: any) => ({
-					service_id: item._id || item.service_id,
-					quantity: item.quantity || 1,
-					price_per_unit: item.price_per_unit,
-					total_price: item.total_price,
-					duration_minutes: item.duration_minutes,
-				}));
-			}
+			this.services = selectedPackage.services.map((item: any) => ({
+				service_id: new Types.ObjectId(item.service._id),
+				quantity: item.quantity || 1,
+				price_per_unit: item.service.price,
+				total_price: item.service.price * (item.quantity || 1),
+				duration_minutes: item.service.duration_minutes,
+			}));
 		}
 
 		// Calculate session duration

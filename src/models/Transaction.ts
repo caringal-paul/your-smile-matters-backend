@@ -21,6 +21,8 @@ export const PaymentMethodEnum = {
 
 export type PaymentMethod = keyof typeof PaymentMethodEnum;
 
+// TODO REQUIRE TRANSCTION TYPE ON TRASNCATIOAN CREATE
+
 // Transaction type enum
 export const TransactionTypeEnum = {
 	Payment: "Payment",
@@ -40,7 +42,8 @@ export type TransactionMethods = {
 	createRefund(
 		refundAmount: number,
 		refundReason: string,
-		processedBy: string
+		processedBy: string,
+		payment_proof_images: string[]
 	): Promise<TransactionModel>;
 };
 
@@ -315,17 +318,8 @@ transactionSchema.pre("save", async function (next) {
 		}
 
 		// Validate payment proof for digital payments
-		if (
-			this.isNew &&
-			this.payment_method === "GCash" &&
-			this.payment_proof_images.length === 0
-		) {
-			return next(
-				customError(
-					400,
-					`Payment proof image is required for ${this.payment_method} transactions`
-				)
-			);
+		if (this.isNew && this.payment_proof_images.length === 0) {
+			return next(customError(400, `Please upload proof of payment`));
 		}
 
 		next();
@@ -375,7 +369,8 @@ transactionSchema.methods.markAsFailed = async function (
 transactionSchema.methods.createRefund = async function (
 	refundAmount: number,
 	refundReason: string,
-	processedBy: string
+	processedBy: string,
+	paymentProofImages: string[] = []
 ) {
 	if (this.status !== "Completed") {
 		throw customError(400, "Can only refund completed transactions");
@@ -388,6 +383,21 @@ transactionSchema.methods.createRefund = async function (
 		);
 	}
 
+	// Require payment proof images for refund
+	if (!paymentProofImages || paymentProofImages.length === 0) {
+		throw customError(
+			400,
+			"Payment proof image is required for refund transactions"
+		);
+	}
+
+	if (paymentProofImages.length > 3) {
+		throw customError(
+			400,
+			"Cannot upload more than 3 payment proof images per transaction"
+		);
+	}
+
 	const refundTransaction = new Transaction({
 		booking_id: this.booking_id,
 		customer_id: this.customer_id,
@@ -396,6 +406,7 @@ transactionSchema.methods.createRefund = async function (
 		payment_method: this.payment_method,
 		status: "Completed",
 		original_transaction_id: this._id,
+		payment_proof_images: paymentProofImages, // ← Use provided images, not original
 		refund_reason: refundReason,
 		transaction_date: new Date(),
 		processed_at: new Date(),

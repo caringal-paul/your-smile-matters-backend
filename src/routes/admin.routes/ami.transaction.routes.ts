@@ -5,7 +5,7 @@ import { Booking } from "../../models/Booking";
 import {
 	authenticateAmiUserToken,
 	AuthenticatedRequest,
-} from "../../middleware/authMiddleware";
+} from "../../middleware/authAmiMiddleware";
 import { TypedResponse } from "../../types/base.types";
 import { customError } from "../../middleware/errorHandler";
 
@@ -96,6 +96,7 @@ export interface CreateRefundRequest {
 	refund_amount: number;
 	refund_reason: string;
 	notes?: string;
+	payment_proof_images: string[];
 }
 
 export interface BookingSummaryResponse {
@@ -574,7 +575,7 @@ router.post(
 	) => {
 		try {
 			const { id } = req.params;
-			const { refund_amount, refund_reason, notes } =
+			const { refund_amount, refund_reason, notes, payment_proof_images } =
 				req.body as CreateRefundRequest;
 			const userId = req.user?._id;
 
@@ -588,12 +589,13 @@ router.post(
 			const refundTransaction = await transaction.createRefund(
 				refund_amount,
 				refund_reason,
-				userId
+				userId,
+				payment_proof_images
 			);
 
 			if (notes) {
 				refundTransaction.notes = notes;
-				await refundTransaction.save();
+				// await refundTransaction.save();
 			}
 
 			const refundTransactionData = await Transaction.findById(

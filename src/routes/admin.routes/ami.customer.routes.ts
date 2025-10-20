@@ -5,7 +5,7 @@ import { MetaData, TypedResponse } from "../../types/base.types";
 import {
 	AuthenticatedRequest,
 	authenticateAmiUserToken,
-} from "../../middleware/authMiddleware";
+} from "../../middleware/authAmiMiddleware";
 import { customError } from "../../middleware/errorHandler";
 import { renderCustomerWelcomeEmail } from "../../utils/generateEmailTemplate";
 import { sendEmail } from "../../utils/emailSender";

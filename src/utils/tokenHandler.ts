@@ -2,30 +2,54 @@ import jwt, { SignOptions } from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import config from "../config/token";
 
-interface JWTPayload {
+export interface JWTPayload {
 	userId: string;
 	email: string;
 	iat?: number;
 	exp?: number;
-	type?: "access" | "refresh";
+	type?: "access" | "refresh" | "customer";
 }
 
 // ---------------------------
-// Generate Access Token
+// Generate Access Token (Admin)
 // ---------------------------
 export const generateAccessToken = (userId: string, email: string): string => {
 	console.log("Access Token:", process.env.JWT_ACCESS_EXPIRES_IN);
 
-	return jwt.sign({ userId, email, type: "access" }, config.jwtSecret, {
+	return jwt.sign({ userId, email, type: "admin" }, config.jwtSecret, {
 		expiresIn: config.accessTokenExpiresIn as SignOptions["expiresIn"],
 	});
 };
 
 // ---------------------------
-// Generate Refresh Token
+// Generate Refresh Token (Admin)
 // ---------------------------
 export const generateRefreshToken = (userId: string, email: string): string => {
-	return jwt.sign({ userId, email, type: "refresh" }, config.jwtSecret, {
+	return jwt.sign({ userId, email, type: "admin" }, config.jwtSecret, {
+		expiresIn: config.refreshTokenExpiresIn as SignOptions["expiresIn"],
+	});
+};
+
+// ---------------------------
+// Generate Customer Access Token
+// ---------------------------
+export const generateCustomerAccessToken = (
+	customerId: string,
+	email: string
+): string => {
+	return jwt.sign({ customerId, email, type: "customer" }, config.jwtSecret, {
+		expiresIn: config.accessTokenExpiresIn as SignOptions["expiresIn"],
+	});
+};
+
+// ---------------------------
+// Generate Customer Refresh Token
+// ---------------------------
+export const generateCustomerRefreshToken = (
+	customerId: string,
+	email: string
+): string => {
+	return jwt.sign({ customerId, email, type: "customer" }, config.jwtSecret, {
 		expiresIn: config.refreshTokenExpiresIn as SignOptions["expiresIn"],
 	});
 };

@@ -1,13 +1,15 @@
 import { Router, NextFunction } from "express";
 import { Types } from "mongoose";
 import { Transaction } from "../../models/Transaction";
-import { Booking } from "../../models/Booking";
-import {
-	authenticateAmiUserToken,
-	AuthenticatedRequest,
-} from "../../middleware/authMiddleware";
+import { Booking, BookingModel } from "../../models/Booking";
 import { TypedResponse } from "../../types/base.types";
 import { customError } from "../../middleware/errorHandler";
+import {
+	authenticateCustomerToken,
+	CustomerAuthenticatedRequest,
+} from "../../middleware/authCustomerMiddleware";
+import { CustomerModel } from "../../models/Customer";
+import { formatToPeso } from "../../utils/formatMoney";
 
 const router = Router();
 
@@ -18,8 +20,8 @@ const router = Router();
 interface TransactionLean {
 	_id: Types.ObjectId;
 	transaction_reference: string;
-	booking_id: Types.ObjectId;
-	customer_id: Types.ObjectId;
+	booking_id: BookingModel;
+	customer_id: CustomerModel;
 	amount: number;
 	transaction_type: string;
 	payment_method: string;
@@ -43,8 +45,8 @@ interface TransactionLean {
 interface TransactionResponse {
 	_id: string;
 	transaction_reference: string;
-	booking_id: string;
-	customer_id: string;
+	booking_id: BookingModel;
+	customer_id: CustomerModel;
 	amount: number;
 	transaction_type: string;
 	payment_method: string;
@@ -93,8 +95,8 @@ function convertToResponse(transaction: TransactionLean): TransactionResponse {
 
 	return {
 		_id: _id.toString(),
-		booking_id: booking_id.toString(),
-		customer_id: customer_id.toString(),
+		booking_id: booking_id,
+		customer_id: customer_id,
 		created_at,
 		updated_at,
 		...transactionData,
@@ -120,23 +122,23 @@ function calculatePaymentStatus(
  */
 router.get(
 	"/my-transactions",
-	authenticateAmiUserToken,
+	authenticateCustomerToken,
 	async (
-		req: AuthenticatedRequest,
+		req: CustomerAuthenticatedRequest,
 		res: TypedResponse<TransactionResponse[]>,
 		next: NextFunction
 	) => {
 		try {
-			const userId = req.user?._id;
+			const customerId = req.customer?._id;
 
-			if (!userId) {
-				throw customError(400, "No user id found. Please login again.");
+			if (!customerId) {
+				throw customError(400, "No customer id found. Please login again.");
 			}
 
 			const { status, payment_method, start_date, end_date } = req.query;
 
 			const filter: Record<string, unknown> = {
-				customer_id: userId,
+				customer_id: customerId,
 				is_active: true,
 			};
 
@@ -163,10 +165,19 @@ router.get(
 			}
 
 			const transactions = await Transaction.find(filter)
+				.populate({
+					path: "booking_id",
+					select:
+						"-deleted_by -retrieved_by -deleted_at -retrieved_at -created_by -updated_by -__v",
+				})
+				.populate({
+					path: "customer_id",
+					select:
+						"-password -deleted_by -retrieved_by -deleted_at -retrieved_at -created_by -updated_by -__v",
+				})
 				.select(
-					"-deleted_by -retrieved_by -deleted_at -retrieved_at -created_by -updated_by"
+					"-deleted_by -retrieved_by -deleted_at -retrieved_at -created_by -updated_by -__v"
 				)
-				.populate("booking_id", "booking_reference session_date")
 				.sort({ transaction_date: -1 })
 				.lean<TransactionLean[]>();
 
@@ -190,18 +201,18 @@ router.get(
  */
 router.get(
 	"/booking/:bookingId",
-	authenticateAmiUserToken,
+	authenticateCustomerToken,
 	async (
-		req: AuthenticatedRequest,
+		req: CustomerAuthenticatedRequest,
 		res: TypedResponse<BookingPaymentSummary>,
 		next: NextFunction
 	) => {
 		try {
 			const { bookingId } = req.params;
-			const userId = req.user?._id;
+			const customerId = req.customer?._id;
 
-			if (!userId) {
-				throw customError(400, "No user id found. Please login again.");
+			if (!customerId) {
+				throw customError(400, "No customer id found. Please login again.");
 			}
 
 			if (!Types.ObjectId.isValid(bookingId)) {
@@ -215,7 +226,7 @@ router.get(
 			}
 
 			// Verify customer owns this booking
-			if (booking.customer_id.toString() !== userId.toString()) {
+			if (booking.customer_id.toString() !== customerId.toString()) {
 				throw customError(403, "You don't have access to this booking");
 			}
 
@@ -280,18 +291,18 @@ router.get(
  */
 router.post(
 	"/booking/:bookingId/pay",
-	authenticateAmiUserToken,
+	authenticateCustomerToken,
 	async (
-		req: AuthenticatedRequest,
+		req: CustomerAuthenticatedRequest,
 		res: TypedResponse<TransactionResponse>,
 		next: NextFunction
 	) => {
 		try {
 			const { bookingId } = req.params;
-			const userId = req.user?._id;
+			const customerId = req.customer?._id;
 
-			if (!userId) {
-				throw customError(400, "No user id found. Please login again.");
+			if (!customerId) {
+				throw customError(400, "No customer id found. Please login again.");
 			}
 
 			if (!Types.ObjectId.isValid(bookingId)) {
@@ -305,7 +316,7 @@ router.post(
 			}
 
 			// Verify customer owns this booking
-			if (booking.customer_id.toString() !== userId.toString()) {
+			if (booking.customer_id.toString() !== customerId.toString()) {
 				throw customError(403, "You don't have access to this booking");
 			}
 
@@ -325,24 +336,34 @@ router.post(
 				throw customError(400, "Payment method is required");
 			}
 
-			// Calculate remaining balance
-			const completedTransactions = await Transaction.find({
+			// Calculate remaining balance - include all non-rejected transactions
+			const allTransactions = await Transaction.find({
 				booking_id: bookingId,
-				status: "Completed",
+				status: { $ne: "Failed" }, // Exclude only rejected/failed transactions
 				transaction_type: { $in: ["Payment", "Partial", "Balance"] },
 			});
 
-			const totalPaid = completedTransactions.reduce(
+			const totalCommitted = allTransactions.reduce(
 				(sum, txn) => sum + txn.amount,
 				0
 			);
 
-			const remainingBalance = booking.final_amount - totalPaid;
+			const remainingBalance = booking.final_amount - totalCommitted;
+
+			// Validate new payment doesn't exceed remaining balance
+			if (amount > remainingBalance) {
+				throw customError(
+					400,
+					`${formatToPeso(amount)} exceeds remaining balance ${formatToPeso(
+						String(remainingBalance)
+					)}`
+				);
+			}
 
 			// Determine transaction type based on amount
 			let transactionType: string;
 			if (amount >= remainingBalance) {
-				transactionType = "Balance"; // Full payment or overpayment
+				transactionType = "Balance"; // Full payment or final payment
 			} else {
 				transactionType = "Partial"; // Partial payment
 			}
@@ -350,7 +371,7 @@ router.post(
 			// Create transaction
 			const newTransaction = new Transaction({
 				booking_id: booking._id,
-				customer_id: userId,
+				customer_id: customerId,
 				amount,
 				transaction_type: transactionType,
 				payment_method,
@@ -359,7 +380,7 @@ router.post(
 				external_reference,
 				notes,
 				transaction_date: new Date(),
-				created_by: userId,
+				created_by: customerId,
 			});
 
 			await newTransaction.save();
@@ -393,18 +414,18 @@ router.post(
  */
 router.get(
 	"/:transactionId",
-	authenticateAmiUserToken,
+	authenticateCustomerToken,
 	async (
-		req: AuthenticatedRequest,
+		req: CustomerAuthenticatedRequest,
 		res: TypedResponse<TransactionResponse>,
 		next: NextFunction
 	) => {
 		try {
 			const { transactionId } = req.params;
-			const userId = req.user?._id;
+			const customerId = req.customer?._id;
 
-			if (!userId) {
-				throw customError(400, "No user id found. Please login again.");
+			if (!customerId) {
+				throw customError(400, "No customer id found. Please login again.");
 			}
 
 			if (!Types.ObjectId.isValid(transactionId)) {
@@ -415,15 +436,28 @@ router.get(
 				.select(
 					"-deleted_by -retrieved_by -deleted_at -retrieved_at -created_by -updated_by"
 				)
-				.populate("booking_id", "booking_reference session_date")
+				.populate("booking_id")
+				.select(
+					"-deleted_by -retrieved_by -deleted_at -retrieved_at -created_by -updated_by -__v"
+				)
+				.populate("customer_id")
+				.select(
+					"-deleted_by -retrieved_by -deleted_at -retrieved_at -created_by -updated_by -__v"
+				)
+				.populate("updated_by")
+				.select(
+					"-deleted_by -retrieved_by -deleted_at -retrieved_at -created_by -updated_by -__v"
+				)
 				.lean<TransactionLean>();
 
 			if (!transaction) {
 				throw customError(404, "Transaction not found");
 			}
 
+			const transactionCustomer = transaction.customer_id as CustomerModel;
+
 			// Verify customer owns this transaction
-			if (transaction.customer_id.toString() !== userId.toString()) {
+			if (String(transactionCustomer._id) != customerId.toString()) {
 				throw customError(403, "You don't have access to this transaction");
 			}
 
@@ -446,18 +480,18 @@ router.get(
  */
 router.patch(
 	"/:transactionId/cancel",
-	authenticateAmiUserToken,
+	authenticateCustomerToken,
 	async (
-		req: AuthenticatedRequest,
+		req: CustomerAuthenticatedRequest,
 		res: TypedResponse<TransactionResponse>,
 		next: NextFunction
 	) => {
 		try {
 			const { transactionId } = req.params;
-			const userId = req.user?._id;
+			const customerId = req.customer?._id;
 
-			if (!userId) {
-				throw customError(400, "No user id found. Please login again.");
+			if (!customerId) {
+				throw customError(400, "No customer id found. Please login again.");
 			}
 
 			if (!Types.ObjectId.isValid(transactionId)) {
@@ -471,7 +505,7 @@ router.patch(
 			}
 
 			// Verify customer owns this transaction
-			if (transaction.customer_id.toString() !== userId.toString()) {
+			if (transaction.customer_id.toString() !== customerId.toString()) {
 				throw customError(403, "You don't have access to this transaction");
 			}
 
@@ -484,7 +518,7 @@ router.patch(
 
 			// Update transaction to cancelled
 			transaction.status = "Cancelled";
-			transaction.updated_by = new Types.ObjectId(userId);
+			transaction.updated_by = new Types.ObjectId(customerId);
 			await transaction.save();
 
 			const updatedTransaction = await Transaction.findById(transaction._id)
@@ -516,9 +550,9 @@ router.patch(
  */
 router.get(
 	"/payment-summary",
-	authenticateAmiUserToken,
+	authenticateCustomerToken,
 	async (
-		req: AuthenticatedRequest,
+		req: CustomerAuthenticatedRequest,
 		res: TypedResponse<{
 			total_bookings: number;
 			total_spent: number;
@@ -531,14 +565,14 @@ router.get(
 		next: NextFunction
 	) => {
 		try {
-			const userId = req.user?._id;
+			const customerId = req.customer?._id;
 
-			if (!userId) {
-				throw customError(400, "No user id found. Please login again.");
+			if (!customerId) {
+				throw customError(400, "No customer id found. Please login again.");
 			}
 
 			const allTransactions = await Transaction.find({
-				customer_id: userId,
+				customer_id: customerId,
 				is_active: true,
 			}).lean<TransactionLean[]>();
 

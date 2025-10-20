@@ -9,7 +9,7 @@ import {
 import {
 	authenticateAmiUserToken,
 	AuthenticatedRequest,
-} from "../../middleware/authMiddleware";
+} from "../../middleware/authAmiMiddleware";
 import { TypedResponse } from "../../types/base.types";
 import { customError } from "../../middleware/errorHandler";
 import mongoose from "mongoose";
@@ -75,6 +75,9 @@ interface PopulatedBookingService {
 	total_price: number;
 	duration_minutes?: number | null;
 	_id: Types.ObjectId;
+	name: string;
+	category: string;
+	price: string;
 }
 
 // Transaction populated type
@@ -174,8 +177,6 @@ interface BookingAnalyticsResponse {
 	total_pending_payment: number;
 	today_bookings: number;
 }
-
-// WORKON DETERMINE THE POSSIBLE ENDPOINTS FOR AMI BOOKING AND TRANSACTIONS
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -324,26 +325,57 @@ router.get(
 
 			const skip = (Number(page) - 1) * Number(limit);
 
+			// Fetch bookings WITHOUT service population
 			const bookings = await Booking.find(filter)
-				.populate<{ customer_id: PopulatedCustomer }>(
-					"customer_id",
-					"first_name last_name email mobile_number profile_image gender customer_no"
-				)
-				.populate<{ photographer_id: PopulatedPhotographer }>(
-					"photographer_id",
-					"name email specialties bio profile_image mobile_number"
-				)
-				.populate<{ services: PopulatedBookingService[] }>(
-					"services.service_id",
-					"name"
-				)
+				.populate<{ customer_id: PopulatedCustomer }>({
+					path: "customer_id",
+					select:
+						"first_name last_name email mobile_number profile_image gender customer_no",
+				})
+				.populate<{ photographer_id: PopulatedPhotographer }>({
+					path: "photographer_id",
+					select: "name email specialties bio profile_image mobile_number",
+				})
 				.sort(sortObj)
 				.skip(skip)
 				.limit(Number(limit))
-				.lean<LeanPopulatedBooking[]>();
+				.lean();
+
+			// Collect all unique service IDs from all bookings
+			const serviceIds = new Set<string>();
+			bookings.forEach((booking: any) => {
+				booking.services?.forEach((service: any) => {
+					if (service.service_id) {
+						serviceIds.add(service.service_id.toString());
+					}
+				});
+			});
+
+			// Fetch all services in one query
+			const services = await Service.find({
+				_id: { $in: Array.from(serviceIds) },
+			})
+				.select("name category price duration_minutes")
+				.lean();
+
+			// Create a map for quick lookup
+			const serviceMap = new Map(
+				services.map((service: any) => [service._id.toString(), service])
+			);
+
+			// Manually populate services in each booking
+			const populatedBookings = bookings.map((booking: any) => {
+				return {
+					...booking,
+					services: booking.services.map((service: any) => ({
+						...service,
+						service_id: serviceMap.get(service.service_id.toString()) || null,
+					})),
+				};
+			});
 
 			const bookingsWithPayment = await Promise.all(
-				bookings.map(async (booking) => {
+				populatedBookings.map(async (booking: any) => {
 					const paymentStatus = await getBookingPaymentStatus(
 						booking._id.toString()
 					);
@@ -367,12 +399,13 @@ router.get(
 				);
 			}
 
-			console.log(bookings);
-
 			const bookingsResponse: BookingListItem[] = filteredBookings.map(
 				({ booking, paymentStatus }) => {
 					const serviceNames = booking.services
-						.map((s: PopulatedBookingService) => s.service_id.name)
+						.map((s: any) => {
+							return s.service_id?.name || "Unknown Service";
+						})
+						.filter((name: string) => name !== "Unknown Service")
 						.join(", ");
 
 					return {
@@ -425,31 +458,35 @@ router.get(
 			}
 
 			const booking = await Booking.findById(id)
-				.populate<{ customer_id: PopulatedCustomer }>(
-					"customer_id",
-					"first_name last_name email mobile_number profile_image gender customer_no"
-				)
-				.populate<{ package_id: PopulatedPackage }>(
-					"package_id",
-					"name package_price description is_available"
-				)
-				.populate<{ photographer_id: PopulatedPhotographer }>(
-					"photographer_id",
-					"name email specialties bio profile_image mobile_number"
-				)
-				.populate<{ promo_id: PopulatedPromo }>(
-					"promo_id",
-					"promo_code discount_type discount_value"
-				)
-				.populate<{ services: PopulatedBookingService[] }>(
-					"services.service_id",
-					"name category price duration_minutes"
-				)
+				.populate<{ customer_id: PopulatedCustomer }>({
+					path: "customer_id",
+					select:
+						"first_name last_name email mobile_number profile_image gender customer_no",
+				})
+				.populate<{ package_id: PopulatedPackage }>({
+					path: "package_id",
+					select: "name package_price description is_available",
+				})
+				.populate<{ photographer_id: PopulatedPhotographer }>({
+					path: "photographer_id",
+					select: "name email specialties bio profile_image mobile_number",
+				})
+				.populate<{ promo_id: PopulatedPromo }>({
+					path: "promo_id",
+					select: "promo_code discount_type discount_value",
+				})
+				.populate<{ services: PopulatedBookingService[] }>({
+					path: "services.service_id",
+					select: "name category price duration_minutes",
+				})
 				.lean<LeanPopulatedBooking>();
 
 			if (!booking) {
 				throw customError(404, "Booking not found");
 			}
+
+			// DEBUG: Log the raw services array
+			console.log("RAW SERVICES:", JSON.stringify(booking.services, null, 2));
 
 			const paymentStatus = await getBookingPaymentStatus(
 				booking._id.toString()
@@ -632,7 +669,12 @@ router.patch(
 	) => {
 		try {
 			const { id } = req.params;
-			const { new_booking_date, new_start_time, new_end_time } = req.body || {};
+			const {
+				new_booking_date,
+				new_start_time,
+				new_end_time,
+				new_photographer_id,
+			} = req.body || {};
 			const userId = req.user?._id;
 
 			if (!userId) {
@@ -664,23 +706,32 @@ router.patch(
 			}
 
 			const booking = await Booking.findById(id);
-
 			if (!booking) {
 				throw customError(404, "Booking not found");
 			}
 
-			if (!["Pending", "Confirmed"].includes(booking.status)) {
+			if (!["Pending", "Confirmed", "Rescheduled"].includes(booking.status)) {
 				throw customError(
 					400,
 					`Cannot reschedule booking with status: ${booking.status}`
 				);
 			}
 
-			// Check photographer availability if assigned
-			if (booking.photographer_id) {
+			// ✅ Handle photographer change
+			let photographerToCheck = booking.photographer_id;
+			if (new_photographer_id) {
+				if (!mongoose.Types.ObjectId.isValid(new_photographer_id)) {
+					throw customError(400, "Invalid photographer ID format");
+				}
+
+				photographerToCheck = new Types.ObjectId(new_photographer_id);
+			}
+
+			// ✅ Check photographer availability
+			if (photographerToCheck) {
 				const conflictingBooking = await Booking.findOne({
 					_id: { $ne: id },
-					photographer_id: booking.photographer_id,
+					photographer_id: photographerToCheck,
 					booking_date: {
 						$gte: new Date(newBookingDateTime.setHours(0, 0, 0, 0)),
 						$lt: new Date(newBookingDateTime.setHours(23, 59, 59, 999)),
@@ -694,11 +745,12 @@ router.patch(
 				if (conflictingBooking) {
 					throw customError(
 						400,
-						"Photographer is not available at the new time slot"
+						"Selected photographer is not available at the new time slot"
 					);
 				}
 			}
 
+			// ✅ Apply updates
 			const originalDate = booking.booking_date;
 
 			booking.booking_date = newBookingDateTime;
@@ -708,8 +760,14 @@ router.patch(
 			booking.rescheduled_from = originalDate;
 			booking.updated_by = new Types.ObjectId(userId);
 
+			// ✅ Update photographer if new one was selected
+			if (new_photographer_id) {
+				booking.photographer_id = new Types.ObjectId(new_photographer_id);
+			}
+
 			await booking.save();
 
+			// ✅ Populate
 			const populatedBooking = await Booking.findById(booking._id)
 				.populate<{ customer_id: PopulatedCustomer }>(
 					"customer_id",
@@ -748,7 +806,9 @@ router.patch(
 
 			res.status(200).json({
 				status: 200,
-				message: "Booking rescheduled successfully!",
+				message: `Booking rescheduled ${
+					new_photographer_id ? "and photographer changed " : ""
+				}successfully!`,
 				data: bookingWithPayment,
 			});
 		} catch (error) {
@@ -784,22 +844,105 @@ router.patch(
 				throw customError(404, "Booking not found");
 			}
 
-			if (!["Confirmed"].includes(booking.status)) {
+			if (!["Confirmed", "Rescheduled"].includes(booking.status)) {
 				throw customError(
 					400,
 					`Cannot start booking with status: ${booking.status}`
 				);
 			}
 
+			// ============================================================================
+			// DATE VALIDATION
+			// ============================================================================
+			const now = new Date();
 			const today = new Date();
 			const bookingDate = new Date(booking.booking_date);
+
 			today.setHours(0, 0, 0, 0);
 			bookingDate.setHours(0, 0, 0, 0);
 
+			// Check if booking is scheduled for today
 			if (bookingDate.getTime() !== today.getTime()) {
-				throw customError(400, "Can only start bookings on the scheduled date");
+				const bookingDateStr = bookingDate.toLocaleDateString("en-US", {
+					month: "long",
+					day: "numeric",
+					year: "numeric",
+				});
+				throw customError(
+					400,
+					`Cannot start booking. This booking is scheduled for ${bookingDateStr}, not today.`
+				);
 			}
 
+			// ============================================================================
+			// TIME VALIDATION
+			// ============================================================================
+			// Get current time in minutes since midnight
+			const currentHour = now.getHours();
+			const currentMinute = now.getMinutes();
+			const currentTimeInMinutes = currentHour * 60 + currentMinute;
+
+			// Parse start_time (format: "HH:MM")
+			const [startHour, startMinute] = booking.start_time
+				.split(":")
+				.map(Number);
+			const startTimeInMinutes = startHour * 60 + startMinute;
+
+			// Calculate end time based on start_time + session_duration_minutes
+			const sessionDuration = booking.session_duration_minutes || 120;
+			const endTimeInMinutes = startTimeInMinutes + sessionDuration;
+
+			// Format times for error messages
+			const formatTime = (minutes: number): string => {
+				const hours = Math.floor(minutes / 60);
+				const mins = minutes % 60;
+				const period = hours >= 12 ? "PM" : "AM";
+				const displayHour = hours > 12 ? hours - 12 : hours === 0 ? 12 : hours;
+				return `${displayHour}:${String(mins).padStart(2, "0")} ${period}`;
+			};
+
+			// Check if current time is before start_time
+			if (currentTimeInMinutes < startTimeInMinutes) {
+				const minutesUntilStart = startTimeInMinutes - currentTimeInMinutes;
+				const hoursUntilStart = Math.floor(minutesUntilStart / 60);
+				const minsUntilStart = minutesUntilStart % 60;
+
+				let waitMessage = "";
+				if (hoursUntilStart > 0 && minsUntilStart > 0) {
+					waitMessage = `${hoursUntilStart} hour${
+						hoursUntilStart > 1 ? "s" : ""
+					} and ${minsUntilStart} minute${minsUntilStart > 1 ? "s" : ""}`;
+				} else if (hoursUntilStart > 0) {
+					waitMessage = `${hoursUntilStart} hour${
+						hoursUntilStart > 1 ? "s" : ""
+					}`;
+				} else {
+					waitMessage = `${minsUntilStart} minute${
+						minsUntilStart > 1 ? "s" : ""
+					}`;
+				}
+
+				throw customError(
+					400,
+					`Cannot start booking yet. The booking is scheduled to start at ${formatTime(
+						startTimeInMinutes
+					)}. Please wait ${waitMessage}.`
+				);
+			}
+
+			// Check if current time is after end_time
+			// if (currentTimeInMinutes > endTimeInMinutes) {
+			// 	throw customError(
+			// 		400,
+			// 		`Cannot start booking. The scheduled session time (${formatTime(
+			// 			startTimeInMinutes
+			// 		)} - ${formatTime(endTimeInMinutes)}) has already passed.`
+			// 	);
+			// }
+
+			// ============================================================================
+			// UPDATE BOOKING STATUS
+			// ============================================================================
 			booking.status = "Ongoing";
 			booking.updated_by = new Types.ObjectId(userId);
 

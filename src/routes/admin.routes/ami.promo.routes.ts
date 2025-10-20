@@ -13,7 +13,7 @@ import { customError } from "../../middleware/errorHandler";
 import {
 	authenticateAmiUserToken,
 	AuthenticatedRequest,
-} from "../../middleware/authMiddleware";
+} from "../../middleware/authAmiMiddleware";
 
 const router = Router();
 

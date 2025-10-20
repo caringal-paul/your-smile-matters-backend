@@ -10,7 +10,7 @@ const router = Router();
 // RESPONSE TYPES
 // ============================================================================
 
-interface ServiceLean {
+type ServiceLean = {
 	_id: Types.ObjectId;
 	name: string;
 	description?: string | null;
@@ -21,12 +21,18 @@ interface ServiceLean {
 	is_available: boolean;
 	service_gallery: string[];
 	is_active: boolean;
-	created_at: Date;
-	updated_at: Date;
-}
+	created_by?: Types.ObjectId | null;
+	updated_by?: Types.ObjectId | null;
+	deleted_by?: Types.ObjectId | null;
+	retrieved_by?: Types.ObjectId | null;
+	created_at?: Date;
+	updated_at?: Date;
+	deleted_at?: Date | null;
+	retrieved_at?: Date | null;
+};
 
 type ServiceListResponse = {
-	id: string;
+	_id: string;
 	name: string;
 	description?: string | null;
 	category: string;
@@ -58,7 +64,7 @@ type RecommendationsResponse = {
 function convertToListResponse(service: ServiceLean): ServiceListResponse {
 	const { _id, is_active, created_at, updated_at, ...serviceData } = service;
 	return {
-		id: _id.toString(),
+		_id: _id.toString(),
 		...serviceData,
 	};
 }
@@ -76,7 +82,7 @@ router.get(
 	"/browse",
 	async (
 		req: Request,
-		res: TypedResponse<ServiceListResponse[]>,
+		res: TypedResponse<ServiceLean[]>,
 		next: NextFunction
 	) => {
 		try {
@@ -130,23 +136,48 @@ router.get(
 			sortObj[sortField] = sort_order === "desc" ? -1 : 1;
 
 			const services = await Service.find(filter)
-				.select(
-					"name description category price old_price duration_minutes is_available service_gallery"
-				)
 				.sort(sortObj)
 				.lean<ServiceLean[]>();
-
-			const servicesResponse: ServiceListResponse[] = services.map(
-				convertToListResponse
-			);
 
 			res.status(200).json({
 				status: 200,
 				message: "Services fetched successfully!",
-				data: servicesResponse,
+				data: services,
 			});
 		} catch (error) {
 			console.error("Error fetching services for browsing:", error);
+			next(error);
+		}
+	}
+);
+
+/**
+ * GET /services/:id
+ * Public - for clients to browse available services
+ */
+router.get(
+	"/:id",
+	async (
+		req: Request<{ id: string }>,
+		res: TypedResponse<ServiceLean>,
+		next: NextFunction
+	) => {
+		try {
+			const { id } = req.params;
+
+			const service = await Service.findById(id).lean<ServiceLean | null>();
+
+			if (!service) {
+				throw customError(404, "Service not found");
+			}
+
+			res.status(200).json({
+				status: 200,
+				message: "Service fetched successfully!",
+				data: service,
+			});
+		} catch (error) {
+			console.error("Error fetching service:", error);
 			next(error);
 		}
 	}

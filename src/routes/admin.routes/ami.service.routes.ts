@@ -5,7 +5,7 @@ import { MetaData, TypedResponse } from "../../types/base.types";
 import {
 	AuthenticatedRequest,
 	authenticateAmiUserToken,
-} from "../../middleware/authMiddleware";
+} from "../../middleware/authAmiMiddleware";
 import { customError } from "../../middleware/errorHandler";
 
 const router = Router();

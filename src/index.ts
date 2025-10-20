@@ -26,6 +26,7 @@ import clientPromoRoutes from "./routes/client.routes/sf.promo.routes";
 import clientPhotographersRoutes from "./routes/client.routes/sf.photographer.routes";
 import clientBookingRoutes from "./routes/client.routes/sf.booking.routes";
 import clientTransactionRoutes from "./routes/client.routes/sf.transaction.routes";
+import clientAuthRoutes from "./routes/client.routes/sf.auth.routes";
 
 dotenv.config();
 validateEnvironment();
@@ -57,8 +58,9 @@ app.use("/api/client/photographers", clientPhotographersRoutes);
 app.use("/api/client/services", clientServiceRoutes);
 app.use("/api/client/packages", clientPackageRoutes);
 app.use("/api/client/promos", clientPromoRoutes);
-app.use("/api/client/booking", clientBookingRoutes);
+app.use("/api/client/bookings", clientBookingRoutes);
 app.use("/api/client/transactions", clientTransactionRoutes);
+app.use("/api/client/auth", clientAuthRoutes);
 
 // Health check
 app.get("/health", (req: Request, res: Response) => {

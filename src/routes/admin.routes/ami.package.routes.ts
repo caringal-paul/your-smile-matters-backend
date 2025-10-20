@@ -3,7 +3,7 @@ import { Types } from "mongoose";
 import {
 	authenticateAmiUserToken,
 	AuthenticatedRequest,
-} from "../../middleware/authMiddleware";
+} from "../../middleware/authAmiMiddleware";
 import { TypedResponse } from "../../types/base.types";
 import { Package } from "../../models/Package";
 import { Service } from "../../models/Service";

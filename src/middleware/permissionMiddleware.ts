@@ -1,5 +1,5 @@
 import { NextFunction, Response } from "express";
-import { AuthenticatedRequest } from "./authMiddleware";
+import { AuthenticatedRequest } from "./authAmiMiddleware";
 
 export const requirePermission = (permission: string) => {
 	return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
