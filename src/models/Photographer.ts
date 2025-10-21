@@ -435,6 +435,14 @@ photographerSchema.methods.getAvailableSlots = async function (
 	const workStart = parse(schedule.start_time, "HH:mm", targetDate);
 	const workEnd = parse(schedule.end_time, "HH:mm", targetDate);
 
+	const leadTimeHours = this.booking_lead_time_hours || 0;
+	const now = new Date();
+
+	// Compute the earliest allowed start datetime based on lead time
+	const earliestAllowedStart = new Date(
+		now.getTime() + leadTimeHours * 60 * 60 * 1000
+	);
+
 	// Step through schedule in 30-min increments
 	let current = workStart;
 	while (!isAfter(addMinutes(current, duration), workEnd)) {
@@ -442,25 +450,17 @@ photographerSchema.methods.getAvailableSlots = async function (
 
 		let hasConflict = false;
 
-		// Check break times
-		// if (schedule.break_times && schedule.break_times.length > 0) {
-		// 	for (const breakTime of schedule.break_times) {
-		// 		const breakStart = parse(breakTime.start_time, "HH:mm", targetDate);
-		// 		const breakEnd = parse(breakTime.end_time, "HH:mm", targetDate);
-		// 		if (current < breakEnd && potentialEnd > breakStart) {
-		// 			hasConflict = true;
-		// 			break;
-		// 		}
-		// 	}
-		// }
+		// Skip if slot starts before allowed lead time
+		if (current < earliestAllowedStart) {
+			current = addMinutes(current, 30);
+			continue;
+		}
 
 		// Check existing bookings
-		if (!hasConflict) {
-			for (const booked of bookedTimeRanges) {
-				if (current < booked.end && potentialEnd > booked.start) {
-					hasConflict = true;
-					break;
-				}
+		for (const booked of bookedTimeRanges) {
+			if (current < booked.end && potentialEnd > booked.start) {
+				hasConflict = true;
+				break;
 			}
 		}
 
@@ -477,6 +477,66 @@ photographerSchema.methods.getAvailableSlots = async function (
 };
 
 // FOR GETTING AVAILABLE SLOTS
+// photographerSchema.statics.getAvailablePhotographers = async function (
+// 	targetDate: Date,
+// 	startTime: string,
+// 	endTime: string,
+// 	sessionDurationMinutes: number = 120
+// ) {
+// 	const photographers = await this.find();
+
+// 	const parseTimeToMinutes = (timeStr: string) => {
+// 		timeStr = timeStr.trim();
+
+// 		// If it contains AM or PM → parse as 12h format
+// 		if (/am|pm/i.test(timeStr)) {
+// 			const [time, period] = timeStr.split(" ");
+// 			const [hours, minutes] = time.split(":").map(Number);
+
+// 			let hour24 = hours;
+// 			if (period.toLowerCase() === "pm" && hours !== 12) hour24 += 12;
+// 			if (period.toLowerCase() === "am" && hours === 12) hour24 = 0;
+
+// 			return hour24 * 60 + minutes;
+// 		}
+
+// 		// Otherwise assume 24h format
+// 		const [hours, minutes] = timeStr.split(":").map(Number);
+// 		return hours * 60 + minutes;
+// 	};
+
+// 	const startMinutes = parseTimeToMinutes(startTime);
+// 	const endMinutes = parseTimeToMinutes(endTime);
+
+// 	const availablePhotographers: PhotographerModel[] = [];
+
+// 	for (const photographer of photographers) {
+// 		const slots: string[] = await photographer.getAvailableSlots(
+// 			targetDate,
+// 			sessionDurationMinutes
+// 		);
+
+// 		// Filter slots by requested time range
+// 		const hasMatchingSlot = slots.some((slot) => {
+// 			const [slotStartStr, slotEndStr] = slot.split(" - ").map((t) => t.trim());
+
+// 			const slotStartMinutes = parseTimeToMinutes(slotStartStr);
+// 			const slotEndMinutes = parseTimeToMinutes(slotEndStr);
+// 			console.log("slotStartMinutes", slotStartMinutes);
+
+// 			if (isNaN(slotStartMinutes) || isNaN(slotEndMinutes)) return false;
+// 			console.log("startMinutes", startTime);
+
+// 			return slotStartMinutes >= startMinutes && slotEndMinutes <= endMinutes;
+// 		});
+
+// 		if (hasMatchingSlot) {
+// 			availablePhotographers.push(photographer);
+// 		}
+// 	}
+
+// 	return availablePhotographers;
+// };
 photographerSchema.statics.getAvailablePhotographers = async function (
 	targetDate: Date,
 	startTime: string,
@@ -488,7 +548,6 @@ photographerSchema.statics.getAvailablePhotographers = async function (
 	const parseTimeToMinutes = (timeStr: string) => {
 		timeStr = timeStr.trim();
 
-		// If it contains AM or PM → parse as 12h format
 		if (/am|pm/i.test(timeStr)) {
 			const [time, period] = timeStr.split(" ");
 			const [hours, minutes] = time.split(":").map(Number);
@@ -497,16 +556,17 @@ photographerSchema.statics.getAvailablePhotographers = async function (
 			if (period.toLowerCase() === "pm" && hours !== 12) hour24 += 12;
 			if (period.toLowerCase() === "am" && hours === 12) hour24 = 0;
 
-			return hour24 * 60 + minutes;
+			return hour24 * 60 + (minutes || 0);
 		}
 
-		// Otherwise assume 24h format
 		const [hours, minutes] = timeStr.split(":").map(Number);
-		return hours * 60 + minutes;
+		return hours * 60 + (minutes || 0);
 	};
 
 	const startMinutes = parseTimeToMinutes(startTime);
 	const endMinutes = parseTimeToMinutes(endTime);
+
+	const now = new Date();
 
 	const availablePhotographers: PhotographerModel[] = [];
 
@@ -516,16 +576,35 @@ photographerSchema.statics.getAvailablePhotographers = async function (
 			sessionDurationMinutes
 		);
 
+		const leadTimeHours = photographer.booking_lead_time_hours || 0;
+
+		// Calculate the actual start datetime of the requested session
+		const bookingStart = new Date(targetDate);
+		bookingStart.setHours(
+			Math.floor(startMinutes / 60),
+			startMinutes % 60,
+			0,
+			0
+		);
+
+		// Calculate the minimum allowed booking datetime based on lead time
+		const earliestAllowedBooking = new Date(
+			now.getTime() + leadTimeHours * 60 * 60 * 1000
+		);
+
+		// If the booking start is earlier than the lead time requirement → skip photographer
+		if (bookingStart < earliestAllowedBooking) {
+			continue;
+		}
+
 		// Filter slots by requested time range
 		const hasMatchingSlot = slots.some((slot) => {
 			const [slotStartStr, slotEndStr] = slot.split(" - ").map((t) => t.trim());
 
 			const slotStartMinutes = parseTimeToMinutes(slotStartStr);
 			const slotEndMinutes = parseTimeToMinutes(slotEndStr);
-			console.log("slotStartMinutes", slotStartMinutes);
 
 			if (isNaN(slotStartMinutes) || isNaN(slotEndMinutes)) return false;
-			console.log("startMinutes", startTime);
 
 			return slotStartMinutes >= startMinutes && slotEndMinutes <= endMinutes;
 		});

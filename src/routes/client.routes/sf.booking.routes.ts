@@ -115,7 +115,7 @@ interface LeanPopulatedBooking {
 	customization_notes?: string | null;
 	booking_date: Date;
 	start_time: string;
-	end_time?: string | null;
+	end_time: string;
 	session_duration_minutes: number;
 	location: string;
 	theme?: string | null;
@@ -124,13 +124,7 @@ interface LeanPopulatedBooking {
 	total_amount: number;
 	discount_amount: number;
 	final_amount: number;
-	amount_paid: number;
-	method_of_payment?: PaymentMethod | null;
-	payment_images: string[];
-	is_partially_paid: boolean;
-	is_payment_complete: boolean;
 	booking_confirmed_at?: Date | null;
-	photographer_assigned_at?: Date | null;
 	booking_completed_at?: Date | null;
 	cancelled_reason?: string | null;
 	rescheduled_from?: Date | null;
@@ -139,7 +133,7 @@ interface LeanPopulatedBooking {
 	photographer_rating?: number | null;
 	is_active: boolean;
 	created_by: Types.ObjectId;
-	updated_by: Types.ObjectId;
+	updated_by?: Types.ObjectId | null;
 	deleted_by?: Types.ObjectId | null;
 	retrieved_by?: Types.ObjectId | null;
 	deleted_at?: Date | null;
@@ -156,17 +150,6 @@ export interface BookingServices {
 	duration_minutes?: number | null;
 }
 
-interface BookingWithPaymentStatus extends LeanPopulatedBooking {
-	payment_status: {
-		amount_paid: number;
-		remaining_balance: number;
-		is_partially_paid: boolean;
-		is_payment_complete: boolean;
-		transactions: TransactionModel[];
-	};
-}
-
-// Populated booking type (extends base BookingModel)
 export interface PopulatedBooking
 	extends Omit<
 		BookingModel,
@@ -177,6 +160,46 @@ export interface PopulatedBooking
 	photographer_id?: PhotographerModel | null;
 	promo_id?: PromoModel | null;
 	services: BookingServices[];
+}
+
+// Payment scenario type
+export type PaymentScenario =
+	| "fully_paid_no_refund"
+	| "fully_paid_with_refund"
+	| "partially_paid_no_refund"
+	| "partially_paid_with_refund"
+	| "refund_only"
+	| "no_payment";
+
+// Enhanced payment status interface
+export interface EnhancedPaymentStatus {
+	// Amounts
+	total_price: number; // Final booking amount (after discount)
+	total_refunded: number; // Total refunded amount
+	amount_paid: number; // Actual revenue (payments - refunds)
+	remaining_balance: number; // Outstanding balance to be paid
+
+	// Status flags
+	is_payment_complete: boolean; // Based on amount_paid
+	is_partially_paid: boolean; // Based on amount_paid
+	has_refund: boolean; // Quick check if there are any refunds
+
+	// Payment scenario for UI logic
+	payment_scenario: PaymentScenario;
+
+	isBookingFinalized: boolean;
+
+	// Transaction counts
+	payment_count: number; // Number of completed payment transactions
+	refund_count: number; // Number of completed refund transactions
+
+	// All transactions for detailed view
+	transactions: TransactionModel[];
+}
+
+// Booking with enhanced payment status
+export interface GetBookingByIdResponse extends LeanPopulatedBooking {
+	payment_status: EnhancedPaymentStatus;
 }
 
 const router = Router();
@@ -254,11 +277,20 @@ router.post(
 				throw customError(400, "Invalid end time format (HH:MM)");
 			}
 
-			// Validate booking date is in the future
 			const bookingDateTime = new Date(booking_date);
 			const now = new Date();
-			if (bookingDateTime <= now) {
-				throw customError(400, "Booking date must be in the future");
+
+			// Normalize both to start of the day (ignore time)
+			const bookingDateOnly = new Date(
+				bookingDateTime.getFullYear(),
+				bookingDateTime.getMonth(),
+				bookingDateTime.getDate()
+			);
+			const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+			// Only reject if the booking date is before today
+			if (bookingDateOnly < today) {
+				throw customError(400, "Booking date cannot be in the past");
 			}
 
 			// Validate services structure
@@ -330,40 +362,38 @@ router.post(
 			// PHOTOGRAPHER AVAILABILITY VALIDATION
 			// ============================================================================
 			if (photographer_id && photographer) {
-				// 1. CHECK BOOKING LEAD TIME
-				// Get photographer's required lead time (default 24 hours if not set)
-				const requiredLeadTimeHours =
-					photographer.booking_lead_time_hours || 24;
+				// const requiredLeadTimeHours =
+				// 	photographer.booking_lead_time_hours || 24;
 
-				// Calculate hours from now until the booking date
-				const hoursUntilBooking =
-					(bookingDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+				// // Calculate hours between now and the selected booking date/time
+				// const hoursUntilBooking =
+				// 	(bookingDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
 
-				// If booking is being made with less advance notice than required, reject it
-				if (hoursUntilBooking < requiredLeadTimeHours) {
-					const daysRequired = Math.floor(requiredLeadTimeHours / 24);
-					const remainingHours = requiredLeadTimeHours % 24;
+				// // Reject if the booking is made too close to the booking time
+				// if (hoursUntilBooking < requiredLeadTimeHours) {
+				// 	const daysRequired = Math.floor(requiredLeadTimeHours / 24);
+				// 	const remainingHours = requiredLeadTimeHours % 24;
 
-					let leadTimeMessage = "";
-					if (daysRequired > 0 && remainingHours > 0) {
-						leadTimeMessage = `${daysRequired} day${
-							daysRequired > 1 ? "s" : ""
-						} and ${remainingHours} hour${remainingHours > 1 ? "s" : ""}`;
-					} else if (daysRequired > 0) {
-						leadTimeMessage = `${daysRequired} day${
-							daysRequired > 1 ? "s" : ""
-						}`;
-					} else {
-						leadTimeMessage = `${requiredLeadTimeHours} hour${
-							requiredLeadTimeHours > 1 ? "s" : ""
-						}`;
-					}
+				// 	// Construct human-readable message (e.g. “1 day and 4 hours”)
+				// 	const formatLeadTimeMessage = () => {
+				// 		if (daysRequired > 0 && remainingHours > 0)
+				// 			return `${daysRequired} day${
+				// 				daysRequired > 1 ? "s" : ""
+				// 			} and ${remainingHours} hour${remainingHours > 1 ? "s" : ""}`;
+				// 		if (daysRequired > 0)
+				// 			return `${daysRequired} day${daysRequired > 1 ? "s" : ""}`;
+				// 		return `${requiredLeadTimeHours} hour${
+				// 			requiredLeadTimeHours > 1 ? "s" : ""
+				// 		}`;
+				// 	};
 
-					throw customError(
-						400,
-						`This photographer requires bookings to be made at least ${leadTimeMessage} in advance. Please select a date/time that is at least ${leadTimeMessage} from now.`
-					);
-				}
+				// 	const leadTimeMessage = formatLeadTimeMessage();
+
+				// 	throw customError(
+				// 		400,
+				// 		`This photographer requires bookings to be made at least ${leadTimeMessage} in advance. Please select a date/time that is at least ${leadTimeMessage} from now.`
+				// 	);
+				// }
 
 				// 2. GET DAY OF WEEK
 				const dayOfWeek = bookingDateTime.toLocaleDateString("en-US", {
@@ -698,13 +728,13 @@ router.get(
 	authenticateCustomerToken,
 	async (
 		req: CustomerAuthenticatedRequest,
-		res: TypedResponse<BookingWithPaymentStatus>,
+		res: TypedResponse<GetBookingByIdResponse>,
 		next: NextFunction
 	) => {
 		try {
 			const { id } = req.params;
 
-			// find the booking
+			// Find the booking
 			const booking = await Booking.findById(id)
 				.populate("customer_id")
 				.populate("package_id", "-services")
@@ -717,7 +747,7 @@ router.get(
 				throw customError(404, "Booking not found");
 			}
 
-			// find all related transactions by booking_id for display
+			// Find all related transactions by booking_id for display
 			const transactions = await Transaction.find({
 				booking_id: id,
 				is_active: true,
@@ -725,24 +755,99 @@ router.get(
 				.sort({ transaction_date: 1 })
 				.lean<TransactionModel[]>();
 
-			// compute payment totals from ONLY completed transactions
-			const amount_paid = transactions
-				.filter((txn) => txn.status === "Completed")
+			// Separate completed transactions by type
+			const completedTransactions = transactions.filter(
+				(txn) => txn.status === "Completed"
+			);
+
+			// Calculate total payments (excluding refunds)
+			const total_payments = completedTransactions
+				.filter((txn) => txn.transaction_type !== "Refund")
 				.reduce((total, txn) => total + (txn.amount || 0), 0);
 
-			const total_price = booking.total_amount || 0;
-			const remaining_balance = Math.max(total_price - amount_paid, 0);
+			// Calculate total refunds
+			const total_refunded = completedTransactions
+				.filter((txn) => txn.transaction_type === "Refund")
+				.reduce((total, txn) => total + (txn.amount || 0), 0);
+
+			// Calculate amount paid (total payments received before refunds)
+			const amount_paid = total_payments;
+
+			// Calculate final amounts
+			const total_price = booking.final_amount || 0; // Use final_amount (after discount)
+
+			const isBookingFinalized = ["Completed", "Cancelled"].includes(
+				booking.status
+			);
+
+			const remaining_balance = isBookingFinalized
+				? 0
+				: Math.max(total_price - amount_paid, 0);
+
+			// Determine payment completion status based on net revenue
+			const is_payment_complete = amount_paid >= total_price;
+			const is_partially_paid = amount_paid > 0 && amount_paid < total_price;
+
+			// Determine payment scenario for frontend logic
+			let payment_scenario:
+				| "fully_paid_no_refund"
+				| "fully_paid_with_refund"
+				| "partially_paid_no_refund"
+				| "partially_paid_with_refund"
+				| "refund_only"
+				| "no_payment";
+
+			if (isBookingFinalized && booking.status === "Completed") {
+				payment_scenario =
+					total_refunded > 0
+						? "fully_paid_with_refund"
+						: "fully_paid_no_refund";
+			} else {
+				if (total_payments === 0 && total_refunded === 0) {
+					payment_scenario = "no_payment";
+				} else if (total_payments === 0 && total_refunded > 0) {
+					payment_scenario = "refund_only";
+				} else if (is_payment_complete && total_refunded === 0) {
+					payment_scenario = "fully_paid_no_refund";
+				} else if (is_payment_complete && total_refunded > 0) {
+					payment_scenario = "fully_paid_with_refund";
+				} else if (is_partially_paid && total_refunded === 0) {
+					payment_scenario = "partially_paid_no_refund";
+				} else {
+					payment_scenario = "partially_paid_with_refund";
+				}
+			}
 
 			const payment_status = {
-				amount_paid,
-				remaining_balance,
-				is_partially_paid: amount_paid > 0 && amount_paid < total_price,
-				is_payment_complete: amount_paid >= total_price,
+				// Amounts
+				total_price, // Final booking amount (after discount)
+				total_refunded, // Total refunded amount
+				amount_paid, // Actual revenue (payments - refunds)
+				remaining_balance, // Outstanding balance
+
+				// Status flags
+				is_payment_complete: is_payment_complete,
+				is_partially_paid: is_partially_paid,
+				has_refund: total_refunded > 0,
+
+				// Payment scenario for UI logic
+				payment_scenario,
+				isBookingFinalized,
+
+				// Transaction breakdown
+				payment_count: completedTransactions.filter(
+					(txn) => txn.transaction_type !== "Refund"
+				).length,
+				refund_count: completedTransactions.filter(
+					(txn) => txn.transaction_type === "Refund"
+				).length,
+
+				// All transactions for detailed view
 				transactions,
 			};
 
-			// ✅ merge and preserve existing fields
-			const result: BookingWithPaymentStatus = {
+			// Merge and preserve existing fields
+			const result: GetBookingByIdResponse = {
 				...booking,
 				payment_status,
 			};

@@ -21,7 +21,6 @@ export const PaymentMethodEnum = {
 
 export type PaymentMethod = keyof typeof PaymentMethodEnum;
 
-// TODO REQUIRE TRANSCTION TYPE ON TRASNCATIOAN CREATE
 
 // Transaction type enum
 export const TransactionTypeEnum = {

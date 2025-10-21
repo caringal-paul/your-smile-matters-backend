@@ -4,6 +4,7 @@ import { Booking, BookingStatus } from "../../models/Booking";
 import {
 	PaymentMethod,
 	Transaction,
+	TransactionModel,
 	TransactionType,
 } from "../../models/Transaction";
 import {
@@ -143,6 +144,47 @@ interface BookingWithPaymentStatus extends LeanPopulatedBooking {
 		is_payment_complete: boolean;
 		transactions: PopulatedTransaction[];
 	};
+}
+
+// Booking with payment status
+// Payment scenario type
+export type PaymentScenario =
+	| "fully_paid_no_refund"
+	| "fully_paid_with_refund"
+	| "partially_paid_no_refund"
+	| "partially_paid_with_refund"
+	| "refund_only"
+	| "no_payment";
+
+// Enhanced payment status interface
+export interface EnhancedPaymentStatus {
+	// Amounts
+	total_price: number; // Final booking amount (after discount)
+	total_refunded: number; // Total refunded amount
+	amount_paid: number; // Actual revenue (payments - refunds)
+	remaining_balance: number; // Outstanding balance to be paid
+
+	// Status flags
+	is_payment_complete: boolean; // Based on amount_paid
+	is_partially_paid: boolean; // Based on amount_paid
+	has_refund: boolean; // Quick check if there are any refunds
+
+	// Payment scenario for UI logic
+	payment_scenario: PaymentScenario;
+
+	isBookingFinalized: boolean;
+
+	// Transaction counts
+	payment_count: number; // Number of completed payment transactions
+	refund_count: number; // Number of completed refund transactions
+
+	// All transactions for detailed view
+	transactions: TransactionModel[];
+}
+
+// Booking with enhanced payment status
+export interface GetBookingByIdResponse extends LeanPopulatedBooking {
+	payment_status: EnhancedPaymentStatus;
 }
 
 // Response types
@@ -447,16 +489,16 @@ router.get(
 	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
-		res: TypedResponse<BookingWithPaymentStatus>,
+		res: TypedResponse<GetBookingByIdResponse>,
 		next: NextFunction
 	) => {
 		try {
 			const { id } = req.params;
 
+			// Check if the booking ID is valid
 			if (!mongoose.Types.ObjectId.isValid(id)) {
 				throw customError(400, "Invalid booking ID format");
 			}
-
 			const booking = await Booking.findById(id)
 				.populate<{ customer_id: PopulatedCustomer }>({
 					path: "customer_id",
@@ -484,19 +526,107 @@ router.get(
 			if (!booking) {
 				throw customError(404, "Booking not found");
 			}
+			// Fetch transactions for the booking and calculate payment details
+			const transactions = await Transaction.find({
+				booking_id: id,
+				is_active: true,
+			})
+				.sort({ transaction_date: 1 })
+				.lean<TransactionModel[]>();
 
-			// DEBUG: Log the raw services array
-			console.log("RAW SERVICES:", JSON.stringify(booking.services, null, 2));
-
-			const paymentStatus = await getBookingPaymentStatus(
-				booking._id.toString()
+			// Separate completed transactions by type
+			const completedTransactions = transactions.filter(
+				(txn) => txn.status === "Completed"
 			);
 
-			const bookingWithPayment: BookingWithPaymentStatus = {
+			// Calculate total payments (excluding refunds)
+			const total_payments = completedTransactions
+				.filter((txn) => txn.transaction_type !== "Refund")
+				.reduce((total, txn) => total + (txn.amount || 0), 0);
+
+			// Calculate total refunds
+			const total_refunded = completedTransactions
+				.filter((txn) => txn.transaction_type === "Refund")
+				.reduce((total, txn) => total + (txn.amount || 0), 0);
+
+			// Calculate amount paid (total payments received before refunds)
+			const amount_paid = total_payments;
+
+			// Calculate final amounts (final_amount is the final price after discount)
+			const total_price = booking.final_amount || 0; // Use final_amount (after discount)
+
+			// Determine if the booking is finalized (completed or cancelled)
+			const isBookingFinalized = ["Completed", "Cancelled"].includes(
+				booking.status
+			);
+
+			// Calculate remaining balance (if booking is not finalized)
+			const remaining_balance = isBookingFinalized
+				? 0
+				: Math.max(total_price - amount_paid, 0);
+
+			// Determine payment completion status
+			const is_payment_complete = amount_paid >= total_price;
+			const is_partially_paid = amount_paid > 0 && amount_paid < total_price;
+
+			// Determine payment scenario for frontend logic
+			let payment_scenario:
+				| "fully_paid_no_refund"
+				| "fully_paid_with_refund"
+				| "partially_paid_no_refund"
+				| "partially_paid_with_refund"
+				| "refund_only"
+				| "no_payment";
+
+			if (isBookingFinalized && booking.status === "Completed") {
+				// If booking is completed, check for refunds
+				payment_scenario =
+					total_refunded > 0
+						? "fully_paid_with_refund"
+						: "fully_paid_no_refund";
+			} else {
+				if (total_payments === 0 && total_refunded === 0) {
+					payment_scenario = "no_payment";
+				} else if (total_payments === 0 && total_refunded > 0) {
+					payment_scenario = "refund_only";
+				} else if (is_payment_complete && total_refunded === 0) {
+					payment_scenario = "fully_paid_no_refund";
+				} else if (is_payment_complete && total_refunded > 0) {
+					payment_scenario = "fully_paid_with_refund";
+				} else if (is_partially_paid && total_refunded === 0) {
+					payment_scenario = "partially_paid_no_refund";
+				} else {
+					payment_scenario = "partially_paid_with_refund";
+				}
+			}
+
+			// Assemble the payment status object
+			const paymentStatus = {
+				total_price, // Final booking amount (after discount)
+				total_refunded, // Total refunded amount
+				amount_paid, // Actual revenue (payments - refunds)
+				remaining_balance, // Outstanding balance
+				is_payment_complete,
+				is_partially_paid,
+				has_refund: total_refunded > 0,
+				payment_scenario,
+				isBookingFinalized,
+				payment_count: completedTransactions.filter(
+					(txn) => txn.transaction_type !== "Refund"
+				).length,
+				refund_count: completedTransactions.filter(
+					(txn) => txn.transaction_type === "Refund"
+				).length,
+				transactions,
+			};
+
+			// Merge payment status with booking details
+			const bookingWithPayment: GetBookingByIdResponse = {
 				...booking,
 				payment_status: paymentStatus,
 			};
 
+			// Respond with the merged booking and payment details
 			res.status(200).json({
 				status: 200,
 				message: "Booking fetched successfully!",
@@ -542,8 +672,41 @@ router.patch(
 				);
 			}
 
-			if (booking.booking_date <= new Date()) {
-				throw customError(400, "Cannot confirm booking for past dates");
+			const now = new Date();
+			const bookingDate = new Date(booking.booking_date);
+
+			// Create date objects for start and end times (assuming stored as Date or string)
+			const startTime = booking.start_time
+				? new Date(booking.start_time)
+				: null;
+			const endTime = booking.end_time ? new Date(booking.end_time) : null;
+
+			const isPastDate =
+				bookingDate.getFullYear() < now.getFullYear() ||
+				(bookingDate.getFullYear() === now.getFullYear() &&
+					bookingDate.getMonth() < now.getMonth()) ||
+				(bookingDate.getFullYear() === now.getFullYear() &&
+					bookingDate.getMonth() === now.getMonth() &&
+					bookingDate.getDate() < now.getDate());
+
+			if (isPastDate) {
+				throw customError(
+					400,
+					"Cannot confirm booking — the booking date is in the past"
+				);
+			}
+
+			// If booking is today, check times
+			const isToday =
+				bookingDate.getFullYear() === now.getFullYear() &&
+				bookingDate.getMonth() === now.getMonth() &&
+				bookingDate.getDate() === now.getDate();
+
+			if (isToday && endTime && endTime <= now) {
+				throw customError(
+					400,
+					"Cannot confirm booking — the booking time has already ended today"
+				);
 			}
 
 			booking.status = "Confirmed";
@@ -701,8 +864,19 @@ router.patch(
 			}
 
 			const newBookingDateTime = new Date(new_booking_date);
-			if (newBookingDateTime <= new Date()) {
-				throw customError(400, "New booking date must be in the future");
+
+			// Strip time for both
+			const bookingDate = new Date(newBookingDateTime);
+			bookingDate.setHours(0, 0, 0, 0);
+
+			const today = new Date();
+			today.setHours(0, 0, 0, 0);
+
+			if (bookingDate < today) {
+				throw customError(
+					400,
+					"New booking date must be today or in the future"
+				);
 			}
 
 			const booking = await Booking.findById(id);

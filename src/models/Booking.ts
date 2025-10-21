@@ -144,9 +144,23 @@ const bookingSchema = new Schema<BookingModel>(
 				validator: function (date: Date) {
 					// Skip validation if date is unchanged (not new or not modified)
 					if (!this.isNew && !this.isModified("booking_date")) return true;
-					return date > new Date();
+
+					const now = new Date();
+					const today = new Date(
+						now.getFullYear(),
+						now.getMonth(),
+						now.getDate()
+					); // midnight today
+					const booking = new Date(
+						date.getFullYear(),
+						date.getMonth(),
+						date.getDate()
+					); // midnight booking date
+
+					// Allow today or future dates
+					return booking >= today;
 				},
-				message: "Booking date must be in the future",
+				message: "Booking date cannot be in the past",
 			},
 		},
 		start_time: {
