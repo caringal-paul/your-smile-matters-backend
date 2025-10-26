@@ -18,6 +18,7 @@ import adminPromoRoutes from "./routes/admin.routes/ami.promo.routes";
 import adminPhotographersRoutes from "./routes/admin.routes/ami.photographer.routes";
 import adminEmailRoutes from "./routes/admin.routes/ami.email.routes";
 import adminTransactionRoutes from "./routes/admin.routes/ami.transaction.routes";
+import adminAnalyticsRoutes from "./routes/admin.routes/ami.analytics.routes";
 
 // CLIENT ROUTES
 import clientServiceRoutes from "./routes/client.routes/sf.service.routes";
@@ -52,6 +53,7 @@ app.use("/api/admin/bookings", adminBookingRoutes);
 app.use("/api/admin/promos", adminPromoRoutes);
 app.use("/api/admin/emails", adminEmailRoutes);
 app.use("/api/admin/transactions", adminTransactionRoutes);
+app.use("/api/admin/analytics", adminAnalyticsRoutes);
 
 // Client Routes
 app.use("/api/client/photographers", clientPhotographersRoutes);

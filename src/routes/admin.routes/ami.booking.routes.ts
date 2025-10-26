@@ -203,6 +203,7 @@ interface BookingListItem {
 	remaining_balance: number;
 	is_payment_complete: boolean;
 	photographer_name?: string | null;
+	updated_at: Date;
 }
 
 interface BookingAnalyticsResponse {
@@ -465,6 +466,7 @@ router.get(
 						remaining_balance: paymentStatus.remaining_balance,
 						is_payment_complete: paymentStatus.is_payment_complete,
 						photographer_id: booking.photographer_id?._id,
+						updated_at: booking.updated_at,
 						photographer_name: booking.photographer_id
 							? `${booking.photographer_id.name}`
 							: null,
@@ -1168,13 +1170,13 @@ router.patch(
 			}
 
 			// Check if payment is complete
-			const paymentStatus = await getBookingPaymentStatus(id);
-			if (!paymentStatus.is_payment_complete) {
-				throw customError(
-					400,
-					"Cannot complete booking with incomplete payment"
-				);
-			}
+			// const paymentStatus = await getBookingPaymentStatus(id);
+			// if (!paymentStatus.is_payment_complete) {
+			// 	throw customError(
+			// 		400,
+			// 		"Cannot complete booking with incomplete payment"
+			// 	);
+			// }
 
 			booking.status = "Completed";
 			booking.booking_completed_at = new Date();
@@ -1269,6 +1271,7 @@ router.get(
 						amount_paid: paymentStatus.amount_paid,
 						remaining_balance: paymentStatus.remaining_balance,
 						is_payment_complete: paymentStatus.is_payment_complete,
+						updated_at: booking.updated_at,
 						photographer_name: booking.photographer_id
 							? `${booking.photographer_id.name}`
 							: null,
@@ -1316,7 +1319,6 @@ router.get(
 				Booking.countDocuments({ is_active: true }),
 				Booking.countDocuments({ status: "Pending", is_active: true }),
 				Booking.countDocuments({ status: "Confirmed", is_active: true }),
-
 				Booking.countDocuments({ status: "Ongoing", is_active: true }),
 				Booking.countDocuments({ status: "Completed", is_active: true }),
 				Booking.countDocuments({ status: "Cancelled", is_active: true }),

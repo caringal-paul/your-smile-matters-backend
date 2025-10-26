@@ -152,6 +152,8 @@ const transactionSchema = new Schema<TransactionModel>(
 			required: [true, "Transaction date is required"],
 			default: Date.now,
 		},
+
+		
 		processed_at: {
 			type: Date,
 			default: null,
