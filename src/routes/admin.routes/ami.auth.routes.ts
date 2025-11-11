@@ -3,9 +3,10 @@ import {
 	comparePassword,
 	generateAccessToken,
 	generateRefreshToken,
+	hashPassword,
 } from "../../utils/tokenHandler";
 import { User } from "../../models/User";
-import mongoose from "mongoose";
+import mongoose, { Types } from "mongoose";
 import jwt, { Secret, SignOptions } from "jsonwebtoken";
 import {
 	AuthenticatedRequest,
@@ -15,6 +16,7 @@ import {
 import { customError } from "../../middleware/errorHandler";
 import { TypedResponse } from "../../types/base.types";
 import config from "../../config/token";
+import bcrypt from "bcrypt";
 
 const router = Router();
 
@@ -144,6 +146,76 @@ router.post(
 	}
 );
 
+// PATCH /api/auth/change-password/:id
+router.patch(
+	"/change-password/:id",
+	authenticateAmiUserToken,
+	async (
+		req: AuthenticatedRequest,
+		res: TypedResponse<null>,
+		next: NextFunction
+	) => {
+		try {
+			const { id } = req.params;
+			const { current_password, new_password } = req.body;
+
+			const userId = req.user?._id;
+
+			if (!userId) {
+				throw customError(400, "No user id found. Please login again.");
+			}
+
+			// ✅ Validate ObjectId
+			if (!mongoose.Types.ObjectId.isValid(id)) {
+				throw customError(400, "Invalid user ID format");
+			}
+
+			// ✅ Validate required fields
+			if (!current_password || !new_password) {
+				throw customError(
+					400,
+					"Current password and new password are required"
+				);
+			}
+
+			// ✅ Find user
+			const user = await User.findById(id).select("+password");
+
+			if (!user) {
+				throw customError(404, "User not found");
+			}
+
+			// ✅ Verify current password
+			const isPasswordValid = await bcrypt.compare(
+				current_password,
+				user.password
+			);
+
+			if (!isPasswordValid) {
+				throw customError(401, "Current password is incorrect");
+			}
+
+			// ✅ Hash new password
+			const hashedNewPassword = await hashPassword(new_password);
+
+			// ✅ Update password
+			user.password = hashedNewPassword;
+			user.updated_by = new Types.ObjectId(userId);
+			user.updated_at = new Date();
+
+			await user.save();
+
+			res.status(200).json({
+				status: 200,
+				message: "Password changed successfully!",
+				data: null,
+			});
+		} catch (error) {
+			next(error);
+		}
+	}
+);
+
 // ---------------------------
 // GET CURRENT USER
 // ---------------------------
@@ -152,7 +224,7 @@ router.get(
 	authenticateAmiUserToken,
 	async (
 		req: AuthenticatedRequest,
-		res: TypedResponse<{ user: UserAuthResponse }>,
+		res: TypedResponse<UserAuthResponse>,
 		next: NextFunction
 	) => {
 		try {
@@ -163,7 +235,7 @@ router.get(
 			res.status(200).json({
 				status: 200,
 				message: "Current user fetched successfully",
-				data: { user: req.user as UserAuthResponse },
+				data: req.user as UserAuthResponse,
 			});
 		} catch (error) {
 			next(error);

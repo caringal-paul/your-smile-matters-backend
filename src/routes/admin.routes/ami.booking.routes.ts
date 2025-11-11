@@ -765,6 +765,7 @@ router.patch(
 );
 
 // PATCH /api/bookings/:id/cancel
+
 router.patch(
 	"/:id/cancel",
 	authenticateAmiUserToken,
@@ -822,7 +823,6 @@ router.patch(
 		}
 	}
 );
-
 // PATCH /api/bookings/:id/reschedule
 router.patch(
 	"/:id/reschedule",
@@ -1170,13 +1170,13 @@ router.patch(
 			}
 
 			// Check if payment is complete
-			// const paymentStatus = await getBookingPaymentStatus(id);
-			// if (!paymentStatus.is_payment_complete) {
-			// 	throw customError(
-			// 		400,
-			// 		"Cannot complete booking with incomplete payment"
-			// 	);
-			// }
+			const paymentStatus = await getBookingPaymentStatus(id);
+			if (!paymentStatus.is_payment_complete) {
+				throw customError(
+					400,
+					"Cannot complete booking with incomplete payment"
+				);
+			}
 
 			booking.status = "Completed";
 			booking.booking_completed_at = new Date();

@@ -35,6 +35,10 @@ export type CustomerModel = Document &
 		profile_image?: string | null;
 	};
 
+export interface CustomerModelStatic extends mongoose.Model<CustomerModel> {
+	generateCustomerNumber(): Promise<string>;
+}
+
 // Customer schema
 const customerSchema = new Schema<CustomerModel>(
 	{
@@ -194,7 +198,7 @@ customerSchema.pre(
 	}
 );
 
-export const Customer = mongoose.model<CustomerModel>(
+export const Customer = mongoose.model<CustomerModel, CustomerModelStatic>(
 	"Customer",
 	customerSchema
 );

@@ -19,6 +19,9 @@ import adminPhotographersRoutes from "./routes/admin.routes/ami.photographer.rou
 import adminEmailRoutes from "./routes/admin.routes/ami.email.routes";
 import adminTransactionRoutes from "./routes/admin.routes/ami.transaction.routes";
 import adminAnalyticsRoutes from "./routes/admin.routes/ami.analytics.routes";
+import adminRatingRoutes from "./routes/admin.routes/ami.rating.routes";
+import adminBookingRequestRoutes from "./routes/admin.routes/ami.booking-request.routes";
+import adminTransactionRequestRoutes from "./routes/admin.routes/ami.transaction-request.routes";
 
 // CLIENT ROUTES
 import clientServiceRoutes from "./routes/client.routes/sf.service.routes";
@@ -28,6 +31,9 @@ import clientPhotographersRoutes from "./routes/client.routes/sf.photographer.ro
 import clientBookingRoutes from "./routes/client.routes/sf.booking.routes";
 import clientTransactionRoutes from "./routes/client.routes/sf.transaction.routes";
 import clientAuthRoutes from "./routes/client.routes/sf.auth.routes";
+import clientRatingRoutes from "./routes/client.routes/sf.rating.routes";
+import clientBookingRequestRoutes from "./routes/client.routes/sf.booking-request.routes";
+import clientTransactionRequestRoutes from "./routes/client.routes/sf.transaction-request.routes";
 
 dotenv.config();
 validateEnvironment();
@@ -54,6 +60,9 @@ app.use("/api/admin/promos", adminPromoRoutes);
 app.use("/api/admin/emails", adminEmailRoutes);
 app.use("/api/admin/transactions", adminTransactionRoutes);
 app.use("/api/admin/analytics", adminAnalyticsRoutes);
+app.use("/api/admin/booking-requests", adminBookingRequestRoutes);
+app.use("/api/admin/transaction-requests", adminTransactionRequestRoutes);
+app.use("/api/admin/ratings", adminRatingRoutes);
 
 // Client Routes
 app.use("/api/client/photographers", clientPhotographersRoutes);
@@ -63,6 +72,9 @@ app.use("/api/client/promos", clientPromoRoutes);
 app.use("/api/client/bookings", clientBookingRoutes);
 app.use("/api/client/transactions", clientTransactionRoutes);
 app.use("/api/client/auth", clientAuthRoutes);
+app.use("/api/client/booking-requests", clientBookingRequestRoutes);
+app.use("/api/client/transaction-requests", clientTransactionRequestRoutes);
+app.use("/api/client/ratings", clientRatingRoutes);
 
 // Health check
 app.get("/health", (req: Request, res: Response) => {

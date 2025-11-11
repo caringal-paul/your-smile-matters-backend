@@ -394,7 +394,11 @@ bookingSchema.pre("save", async function (next) {
 
 		next();
 	} catch (error) {
-		next(customError(500, "Failed to save booking"));
+		if (typeof error === "string") {
+			next(customError(500, "Failed to save booking"));
+		} else if (error instanceof Error) {
+			next(customError(400, error.message));
+		}
 	}
 });
 

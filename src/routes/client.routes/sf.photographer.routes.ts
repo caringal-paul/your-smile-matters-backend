@@ -331,17 +331,19 @@ router.get(
 
 			let slots: string[];
 
-			if (service_id && typeof service_id === "string") {
-				slots = await photographer.getAvailableSlotsForService(
-					targetDate,
-					service_id
-				);
-			} else {
-				const duration = session_duration_minutes
-					? parseInt(session_duration_minutes as string, 10)
-					: 120;
-				slots = await photographer.getAvailableSlots(targetDate, duration);
-			}
+			const duration = session_duration_minutes
+				? parseInt(session_duration_minutes as string, 10)
+				: 120;
+			slots = await photographer.getAvailableSlots(targetDate, duration);
+
+			// if (service_id && typeof service_id === "string") {
+			// 	slots = await photographer.getAvailableSlotsForService(
+			// 		targetDate,
+			// 		service_id
+			// 	);
+			// } else {
+
+			// }
 
 			res.status(200).json({
 				status: 200,

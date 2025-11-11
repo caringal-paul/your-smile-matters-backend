@@ -14,6 +14,7 @@ export interface AuthenticatedUser {
 	first_name: string;
 	last_name: string;
 	role_id: string;
+	mobile_number: string;
 	role_and_permissions?: {
 		name: string;
 		description?: string;
@@ -69,6 +70,7 @@ export const authenticateAmiUserToken = async (
 			username: user.username,
 			first_name: user.first_name,
 			last_name: user.last_name,
+			mobile_number: user.mobile_number,
 			role_id:
 				user.role_id &&
 				typeof user.role_id === "object" &&

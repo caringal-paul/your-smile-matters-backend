@@ -81,9 +81,6 @@ const packageSchema = new Schema<PackageModel>(
 
 		// Pricing
 		package_price: { type: Number, required: true, min: 0 },
-		// discount_percentage: { type: Number, min: 0, max: 100, default: null },
-		// discount_amount: { type: Number, min: 0, default: null },
-		// final_price: { type: Number, min: 0, default: null },
 
 		// Services matching Booking structure
 		services: [

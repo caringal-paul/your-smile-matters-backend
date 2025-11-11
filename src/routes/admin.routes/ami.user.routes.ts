@@ -296,6 +296,7 @@ router.post(
 		}
 	}
 );
+
 // PATCH /api/users/:id
 router.patch(
 	"/:id",
