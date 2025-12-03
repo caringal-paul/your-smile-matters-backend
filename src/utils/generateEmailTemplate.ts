@@ -202,6 +202,101 @@ export const renderCustomerWelcomeEmail = (opts: {
     </html>`;
 };
 
+export const renderPhotographerWelcomeEmail = ({
+	name,
+	email,
+	password,
+	loginUrl,
+	companyName,
+	supportEmail,
+}: {
+	name: string;
+	email: string;
+	password: string;
+	loginUrl: string;
+	companyName: string;
+	supportEmail: string;
+}): string => {
+	return `
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Welcome to ${companyName}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
+	<table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px;">
+		<tr>
+			<td align="center">
+				<table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+					<!-- Header -->
+					<tr>
+						<td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center;">
+							<h1 style="color: #ffffff; margin: 0; font-size: 28px;">📸 Welcome to ${companyName}!</h1>
+						</td>
+					</tr>
+					
+					<!-- Content -->
+					<tr>
+						<td style="padding: 40px 30px;">
+							<h2 style="color: #333333; margin-top: 0;">Hello ${name}! 👋</h2>
+							<p style="color: #666666; font-size: 16px; line-height: 1.6;">
+								We're excited to have you join our team of photographers! Your account has been created successfully.
+							</p>
+							
+							<div style="background-color: #f8f9fa; border-left: 4px solid #667eea; padding: 20px; margin: 30px 0; border-radius: 4px;">
+								<h3 style="margin-top: 0; color: #333333;">Your Login Credentials</h3>
+								<p style="color: #666666; margin: 10px 0;">
+									<strong>Email:</strong> ${email}
+								</p>
+								<p style="color: #666666; margin: 10px 0;">
+									<strong>Temporary Password:</strong> <code style="background-color: #e9ecef; padding: 4px 8px; border-radius: 4px; font-size: 14px;">${password}</code>
+								</p>
+							</div>
+							
+							<p style="color: #666666; font-size: 16px; line-height: 1.6;">
+								⚠️ <strong>Important:</strong> Please change your password after your first login for security purposes.
+							</p>
+							
+							<div style="text-align: center; margin: 40px 0;">
+								<a href="${loginUrl}" style="background-color: #667eea; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 6px; display: inline-block; font-weight: bold; font-size: 16px;">
+									Login to Your Account
+								</a>
+							</div>
+							
+							<div style="background-color: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 4px; margin-top: 30px;">
+								<p style="color: #856404; margin: 0; font-size: 14px;">
+									<strong>📌 Next Steps:</strong><br>
+									1. Login with your temporary password<br>
+									2. Update your profile and portfolio<br>
+									3. Set your availability schedule<br>
+									4. Start accepting bookings!
+								</p>
+							</div>
+						</td>
+					</tr>
+					
+					<!-- Footer -->
+					<tr>
+						<td style="background-color: #f8f9fa; padding: 30px; text-align: center; border-top: 1px solid #e9ecef;">
+							<p style="color: #999999; font-size: 14px; margin: 0 0 10px 0;">
+								Need help? Contact us at <a href="mailto:${supportEmail}" style="color: #667eea; text-decoration: none;">${supportEmail}</a>
+							</p>
+							<p style="color: #999999; font-size: 12px; margin: 0;">
+								© ${new Date().getFullYear()} ${companyName}. All rights reserved.
+							</p>
+						</td>
+					</tr>
+				</table>
+			</td>
+		</tr>
+	</table>
+</body>
+</html>
+	`;
+};
+
 export const renderBookingApprovalEmail = (opts: {
 	firstName: string;
 	lastName: string;
@@ -293,4 +388,99 @@ export const renderBookingApprovalEmail = (opts: {
         </center>
       </body>
     </html>`;
+};
+
+export const renderSupportEmail = (opts: {
+	name: string;
+	email: string;
+	subject: string;
+	message: string;
+	companyName: string;
+	supportEmail: string;
+}) => {
+	return `
+  <!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8"/>
+      <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+      <title>New Support Inquiry - ${opts.companyName}</title>
+    </head>
+    <body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#0b1220;">
+      <center style="width:100%;background:#f6f7fb;">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:28px 16px;text-align:center;">
+              <table width="600" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="background:#fff;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+                
+                <tr>
+                  <td align="center" style="padding:24px 36px;border-bottom:1px solid #eee;text-align:center;">
+                    <h2 style="margin:0;font-size:20px;color:#846e62;">
+                      New Support Request 📩
+                    </h2>
+                    <p style="margin:6px 0 0;font-size:14px;color:#51606b;">
+                      Someone has submitted a support inquiry.
+                    </p>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td align="left" style="padding:24px 36px;text-align:left;">
+                    
+                    <p style="margin:0 0 16px;font-size:15px;color:#846e62;">
+                      <strong>Name:</strong> ${opts.name || "Anonymous"}
+                    </p>
+
+                    <p style="margin:0 0 16px;font-size:15px;color:#846e62;">
+                      <strong>Email:</strong> ${
+												opts.email || "No email provided"
+											}
+                    </p>
+
+                    <p style="margin:0 0 16px;font-size:15px;color:#846e62;">
+                      <strong>Subject:</strong> ${opts.subject}
+                    </p>
+
+                    <table cellpadding="12" cellspacing="0" style="margin:12px 0;border:1px solid #eef6ff;background:#fbfdff;border-radius:8px;width:100%;">
+                      <tr>
+                        <td style="font-size:14px;color:#475569;line-height:1.6;">
+                          <strong>Message:</strong>
+                          <br/>
+                          <div style="margin-top:8px;white-space:pre-wrap;">
+                            ${opts.message}
+                          </div>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
+
+                    <p style="margin:0;font-size:13px;color:#64748b;">
+                      This email was automatically generated from your support form.
+                      If you have questions, contact us at  
+                      <a href="mailto:${
+												opts.supportEmail
+											}" style="color:#0b61d1;text-decoration:none;">
+                        ${opts.supportEmail}
+                      </a>.
+                    </p>
+
+                  </td>
+                </tr>
+
+                <tr>
+                  <td align="center" style="padding:18px 36px;background:#fbfdff;text-align:center;font-size:12px;color:#94a3b8;">
+                    © ${new Date().getFullYear()} ${
+		opts.companyName
+	}. All rights reserved.
+                  </td>
+                </tr>
+
+              </table>
+            </td>
+          </tr>
+        </table>
+      </center>
+    </body>
+  </html>`;
 };

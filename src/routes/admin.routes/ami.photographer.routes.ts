@@ -7,6 +7,10 @@ import {
 } from "../../middleware/authAmiMiddleware";
 import { TypedResponse } from "../../types/base.types";
 import { customError } from "../../middleware/errorHandler";
+import { Role } from "../../models/Role";
+import { hashPassword } from "../../utils/tokenHandler";
+import { renderPhotographerWelcomeEmail } from "../../utils/generateEmailTemplate";
+import { sendEmail } from "../../utils/emailSender";
 
 const router = Router();
 
@@ -52,15 +56,6 @@ interface PhotographerResponse {
 	is_active: boolean;
 	created_at: Date;
 	updated_at: Date;
-}
-
-interface AvailablePhotographerSlot {
-	photographer: PhotographerResponse;
-	availableSlots: string[];
-}
-
-interface AvailablePhotographerResponse {
-	photographer: PhotographerResponse;
 }
 
 // ============================================================================
@@ -191,14 +186,33 @@ router.post(
 			if (!userId)
 				throw customError(400, "No user id found. Please login again.");
 
+			// Auto-assign Photographer role if not provided
+			let roleId = req.body.role_id;
+
+			if (!roleId) {
+				const photographerRole = await Role.findOne({ name: "Photographer" });
+
+				if (!photographerRole) {
+					throw customError(500, "Photographer role not found in system");
+				}
+
+				roleId = photographerRole._id;
+			}
+
+			// Generate temporary password
+			const tempPassword = Math.random().toString(36).slice(-8);
+			const hashedPassword = await hashPassword(tempPassword); // Use your actual hashing function
+
 			const photographerData = {
 				...req.body,
+				password: hashedPassword, // Add hashed password
+				role_id: roleId,
 				created_by: userId,
 			};
 
 			const newPhotographer = await Photographer.create(photographerData);
 			const photographer = await Photographer.findById(newPhotographer._id)
-				.select("-deleted_by -retrieved_by -deleted_at -retrieved_at")
+				.select("-deleted_by -retrieved_by -deleted_at -retrieved_at -password")
 				.lean<PhotographerLean>();
 
 			if (!photographer) {
@@ -208,11 +222,30 @@ router.post(
 				});
 			}
 
-			const photographerResponse = convertToResponse(photographer);
+			// Send welcome email
+			const emailHtml = renderPhotographerWelcomeEmail({
+				name: photographer.name,
+				email: photographer.email,
+				password: tempPassword,
+				loginUrl: "https://localhost.com/auth/login", // Update with your actual URL
+				companyName: "Your Smile Matters",
+				supportEmail: "ysmphotographysupport@gmail.com",
+			});
+
+			await sendEmail({
+				to: photographer.email,
+				subject: "Welcome to Your Smile Matters - Photographer Account! 📸",
+				html: emailHtml,
+			});
+
+			const photographerResponse = {
+				...convertToResponse(photographer),
+				temporary_password: tempPassword, // Include in response (optional)
+			};
 
 			res.status(201).json({
 				status: 201,
-				message: "Photographer created successfully!",
+				message: "Photographer created successfully! Welcome email sent.",
 				data: photographerResponse,
 			});
 		} catch (error) {

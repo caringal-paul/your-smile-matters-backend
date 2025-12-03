@@ -21,7 +21,6 @@ export const PaymentMethodEnum = {
 
 export type PaymentMethod = keyof typeof PaymentMethodEnum;
 
-
 // Transaction type enum
 export const TransactionTypeEnum = {
 	Payment: "Payment",
@@ -133,10 +132,10 @@ const transactionSchema = new Schema<TransactionModel>(
 			default: [],
 			validate: {
 				validator: function (images: string[]) {
-					return images.length <= 5;
+					return images.length <= 4;
 				},
 				message:
-					"Cannot upload more than 5 payment proof images per transaction",
+					"Cannot upload more than 4 payment proof images per transaction",
 			},
 		},
 
@@ -153,7 +152,6 @@ const transactionSchema = new Schema<TransactionModel>(
 			default: Date.now,
 		},
 
-		
 		processed_at: {
 			type: Date,
 			default: null,
@@ -392,10 +390,10 @@ transactionSchema.methods.createRefund = async function (
 		);
 	}
 
-	if (paymentProofImages.length > 3) {
+	if (paymentProofImages.length > 4) {
 		throw customError(
 			400,
-			"Cannot upload more than 3 payment proof images per transaction"
+			"Cannot upload more than 4 payment proof images per transaction"
 		);
 	}
 

@@ -5,6 +5,7 @@ import { User } from "../models/User";
 import jwt from "jsonwebtoken";
 import { verifyToken } from "../utils/tokenHandler";
 import { customError } from "./errorHandler"; // Import your custom error function
+import { Photographer } from "../models/Photographer";
 
 // Extend Request type to include user
 export interface AuthenticatedUser {
@@ -15,11 +16,13 @@ export interface AuthenticatedUser {
 	last_name: string;
 	role_id: string;
 	mobile_number: string;
+	profile_image?: string;
 	role_and_permissions?: {
 		name: string;
 		description?: string;
 		permissions: string[];
 	} | null;
+	is_photographer?: boolean;
 }
 
 export interface AuthenticatedRequest<
@@ -39,6 +42,7 @@ export const authenticateAmiUserToken = async (
 ) => {
 	try {
 		const authHeader = req.headers.authorization;
+
 		if (!authHeader) throw customError(401, "Access token required");
 
 		if (!authHeader.startsWith("Bearer "))
@@ -53,17 +57,60 @@ export const authenticateAmiUserToken = async (
 		// ✅ jwt.verify will throw if expired or invalid
 		const decoded = verifyToken(token);
 
-		const user = await User.findById(decoded.userId)
+		// Try to find user first
+		let user = await User.findById(decoded.userId)
 			.populate({
 				path: "role_id",
 				select: "name description permissions",
 			})
 			.lean();
 
-		if (!user) throw customError(401, "User not found or token invalid");
-		if (user.is_active === false) throw customError(401, "Account deactivated");
+		let isPhotographer = false;
 
-		// attach user info to request
+		// If not found in User, check Photographer
+		if (!user) {
+			const photographer = await Photographer.findById(decoded.userId)
+				.populate({
+					path: "role_id",
+					select: "name description permissions",
+				})
+				.lean();
+
+			if (!photographer) {
+				throw customError(401, "User not found or token invalid");
+			}
+
+			if (photographer.is_active === false) {
+				throw customError(401, "Account deactivated");
+			}
+
+			isPhotographer = true;
+
+			// Map photographer to user-like object
+			user = {
+				_id: photographer._id,
+				email: photographer.email,
+				username: photographer.name,
+				first_name: photographer.name.split(" ")[0] || photographer.name,
+				last_name: photographer.name.split(" ").slice(1).join(" ") || "",
+				mobile_number: photographer.mobile_number || "",
+				profile_image: photographer.profile_image || null,
+				role_id: photographer.role_id,
+				is_active: photographer.is_active,
+			} as any;
+		} else {
+			console.log("4 - User found");
+
+			if (user.is_active === false) {
+				throw customError(401, "Account deactivated");
+			}
+		}
+
+		if (!user) {
+			throw customError(401, "User not found or token invalid");
+		}
+
+		// Attach user info to request
 		req.user = {
 			_id: user._id.toString(),
 			email: user.email,
@@ -71,6 +118,7 @@ export const authenticateAmiUserToken = async (
 			first_name: user.first_name,
 			last_name: user.last_name,
 			mobile_number: user.mobile_number,
+			profile_image: user.profile_image ?? undefined,
 			role_id:
 				user.role_id &&
 				typeof user.role_id === "object" &&
@@ -87,9 +135,11 @@ export const authenticateAmiUserToken = async (
 							permissions: (user.role_id as any).permissions || [],
 					  }
 					: null,
+			is_photographer: isPhotographer,
 		};
 
 		req.token = token;
+
 		next();
 	} catch (error) {
 		if (error instanceof jwt.TokenExpiredError) {

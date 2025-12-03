@@ -101,22 +101,45 @@ export const seedBookingsAndTransactions = async () => {
 					sessionDuration = Math.min(sessionDuration, 120); // Final cap at 120 minutes
 				}
 
-				// Generate random booking date from past year to future 30 days
 				const now = new Date();
-				const oneYearAgo = subMonths(now, 12);
-				const thirtyDaysFromNow = addDays(now, 30);
 
-				// Random date between one year ago and 30 days from now
+				// Randomly pick a range: recent (1-11 months ago), past year, or up to 2 years ago
+				const randomChoice = faker.number.int({ min: 1, max: 3 });
+
+				let fromDate: Date;
+				switch (randomChoice) {
+					case 1:
+						// Recent: 1-11 months ago
+						fromDate = subMonths(now, faker.number.int({ min: 1, max: 11 }));
+						break;
+					case 2:
+						// Past year: 12 months ago
+						fromDate = subMonths(now, 12);
+						break;
+					case 3:
+						// Older: up to 2 years ago
+						fromDate = subMonths(now, faker.number.int({ min: 13, max: 24 }));
+						break;
+					default:
+						fromDate = subMonths(now, 6);
+				}
+
+				// let fromDate: Date = subMonths(now, 1);
+
+				// Random date between chosen start and 30 days from now
 				const bookingDate = faker.date.between({
-					from: oneYearAgo,
-					to: thirtyDaysFromNow,
+					from: fromDate,
+					to: addDays(now, 30),
 				});
-				bookingDate.setHours(0, 0, 0, 0); // Normalize to start of day
+
+				// Normalize to start of day
+				bookingDate.setHours(0, 0, 0, 0);
 
 				// Get available slots for this photographer
 				const availableSlots = await photographer.getAvailableSlots(
 					bookingDate,
-					sessionDuration
+					sessionDuration,
+					true
 				);
 
 				if (availableSlots.length === 0) {
@@ -149,8 +172,8 @@ export const seedBookingsAndTransactions = async () => {
 				if (bookingDate < now) {
 					// Past bookings are more likely to be Completed
 					bookingStatus = faker.helpers.weightedArrayElement([
-						{ value: "Completed", weight: 7 },
-						{ value: "Cancelled", weight: 2 },
+						{ value: "Completed", weight: 8 },
+						{ value: "Cancelled", weight: 1 },
 						{ value: "Confirmed", weight: 1 },
 					]);
 				} else {
@@ -217,6 +240,8 @@ export const seedBookingsAndTransactions = async () => {
 									"Venue conflict",
 							  ])
 							: null,
+					_skipPastValidation: true,
+					_skipAvailabilityCheck: true,
 				});
 
 				// Create transaction(s) for this booking

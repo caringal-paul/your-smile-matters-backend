@@ -17,6 +17,7 @@ import { customError } from "../../middleware/errorHandler";
 import { TypedResponse } from "../../types/base.types";
 import config from "../../config/token";
 import bcrypt from "bcrypt";
+import { Photographer } from "../../models/Photographer";
 
 const router = Router();
 
@@ -38,7 +39,9 @@ export type UserAuthResponse = {
 	last_name: string;
 	mobile_number: string;
 	role_id: string;
+	profile_image?: string;
 	role_and_permissions: RoleResponse | null;
+	is_photographer?: boolean;
 };
 
 export type LoginResponse = {
@@ -61,13 +64,12 @@ router.post(
 		try {
 			const { email, password } = req.body;
 
-			// Validate input
 			if (!email || !password) {
 				throw customError(400, "Email and password are required");
 			}
 
-			// Find user and populate role information
-			const user = await User.findOne({ email })
+			// Try User first
+			let user = await User.findOne({ email })
 				.populate({
 					path: "role_id",
 					select: "name description permissions",
@@ -75,33 +77,74 @@ router.post(
 				.select("+password")
 				.lean();
 
+			let isPhotographer = false;
+
+			// If not found in User, check Photographer
 			if (!user) {
-				throw customError(401, "Invalid email or password");
+				console.log("PHOTOGRAPHER", user);
+
+				const photographer = await Photographer.findOne({ email })
+					.populate({
+						path: "role_id",
+						select: "name description permissions",
+					})
+					.select("+password")
+					.lean();
+
+				if (!photographer) {
+					throw customError(401, "Invalid email or password");
+				}
+
+				if (photographer.is_active === false) {
+					throw customError(401, "Account is deactivated");
+				}
+
+				const isPasswordValid = await comparePassword(
+					password,
+					photographer.password
+				);
+				if (!isPasswordValid) {
+					throw customError(401, "Invalid email or password");
+				}
+
+				isPhotographer = true;
+
+				// Map photographer to user-like object
+				user = {
+					_id: photographer._id,
+					email: photographer.email,
+					username: photographer.name,
+					first_name: photographer.name.split(" ")[0] || photographer.name,
+					last_name: photographer.name.split(" ").slice(1).join(" ") || "",
+					mobile_number: photographer.mobile_number || "",
+					role_id: photographer.role_id,
+					is_active: photographer.is_active,
+				} as any;
+			} else {
+				console.log("USERS", user);
+
+				// Check if user is active
+				if (user.is_active === false) {
+					throw customError(401, "Account is deactivated");
+				}
+
+				// Verify password
+				const isPasswordValid = await comparePassword(password, user.password);
+				if (!isPasswordValid) {
+					throw customError(401, "Invalid email or password");
+				}
 			}
 
-			// Check if user is active
-			if (user.is_active === false) {
-				throw customError(401, "Account is deactivated");
+			if (!user) {
+				throw customError(404, "Invalid email or password");
 			}
 
-			// Verify password
-			const isPasswordValid = await comparePassword(password, user.password);
-			if (!isPasswordValid) {
-				throw customError(401, "Invalid email or password");
-			}
-
-			// ✅ Generate tokens using utils
+			// Generate tokens
 			const access_token = generateAccessToken(user._id.toString(), user.email);
 			const refresh_token = generateRefreshToken(
 				user._id.toString(),
 				user.email
 			);
-
-			// Store refresh token in database
-			await User.findByIdAndUpdate(user._id, {
-				refresh_token,
-				last_login: new Date(),
-			});
 
 			// Prepare user response data
 			const isRolePopulated =
@@ -128,6 +171,7 @@ router.post(
 							permissions: roleDoc.permissions || [],
 					  }
 					: null,
+				is_photographer: isPhotographer,
 			};
 
 			res.status(200).json({
@@ -231,6 +275,8 @@ router.get(
 			if (!req.user) {
 				throw customError(401, "Not authenticated");
 			}
+
+			console.log("REQUESTED USER", req.user);
 
 			res.status(200).json({
 				status: 200,

@@ -176,8 +176,6 @@ router.get(
 				.sort(sortObj)
 				.lean<ServiceLean[]>();
 
-			console.log("Fetched services for admin:", services);
-
 			const servicesResponse: ServiceResponse[] =
 				services.map(convertToResponse);
 
@@ -244,8 +242,6 @@ router.get(
 				throw customError(400, "Invalid service ID format");
 			}
 
-			// For public access, only show available and active services
-			// For authenticated users, show all services (including inactive)
 			const isAuthenticated = req.headers.authorization;
 
 			interface ServiceDetailFilter {
@@ -393,7 +389,7 @@ router.post(
 				duration_minutes:
 					duration_minutes !== undefined ? duration_minutes : null,
 				is_available: is_available !== undefined ? is_available : true,
-				service_gallery: service_gallery.map((url: string) => url.trim()),
+				service_gallery: service_gallery || [],
 				is_active: true,
 				created_by: new Types.ObjectId(userId),
 				updated_by: new Types.ObjectId(userId),
@@ -442,6 +438,8 @@ router.patch(
 				is_active,
 				service_gallery,
 			} = req.body;
+
+			console.log("REQUEST ONLY", service_gallery);
 
 			const userId = req.user?._id;
 
@@ -546,9 +544,7 @@ router.patch(
 			if (is_available !== undefined) service.is_available = is_available;
 			if (is_active !== undefined) service.is_active = is_active;
 			if (service_gallery !== undefined)
-				service.service_gallery = service_gallery.map((url: string) =>
-					url.trim()
-				);
+				service.service_gallery = service_gallery;
 
 			// Track audit info
 			service.updated_by = new Types.ObjectId(userId);
@@ -557,7 +553,13 @@ router.patch(
 			await service.save();
 
 			const serviceObj = service.toObject() as ServiceLean;
+
+			console.log("I am called");
+
+			console.log(" Updated service object:", serviceObj);
 			const serviceResponse: ServiceResponse = convertToResponse(serviceObj);
+
+			console.log(" Updated service res:", serviceResponse);
 
 			res.status(200).json({
 				status: 200,

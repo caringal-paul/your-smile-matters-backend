@@ -1277,6 +1277,9 @@ import {
 	TransactionStatus,
 	TransactionType,
 } from "../models/Transaction";
+import { TransactionRequest } from "../models/TransactionRequest";
+import { Rating } from "../models/Rating";
+import { BookingRequest } from "../models/BookingRequest";
 
 const MONGODB_URI =
 	process.env.MONGODB_URI || "mongodb://localhost:27017/capstone-dev";
@@ -1299,6 +1302,10 @@ async function clearCollections() {
 		Service.deleteMany({}),
 		Package.deleteMany({}),
 		Booking.deleteMany({}),
+		Transaction.deleteMany({}),
+		TransactionRequest.deleteMany({}),
+		BookingRequest.deleteMany({}),
+		Rating.deleteMany({}),
 	]);
 }
 
@@ -2583,35 +2590,96 @@ export const seedTransactions = async (admin: any) => {
 	}
 };
 
+async function seedRoles() {
+	try {
+		await Role.deleteMany({});
+
+		const rolesData = [
+			{
+				name: "Admin",
+				description: "Full access to all system features",
+				permissions: [
+					"user:create",
+					"user:read",
+					"user:update",
+					"user:delete",
+					"customer:create",
+					"customer:read",
+					"customer:update",
+					"customer:delete",
+					"photographer:create",
+					"photographer:read",
+					"photographer:update",
+					"photographer:delete",
+					"booking:create",
+					"booking:read",
+					"booking:update",
+					"booking:delete",
+					"service:create",
+					"service:read",
+					"service:update",
+					"service:delete",
+					"role:create",
+					"role:read",
+					"role:update",
+					"role:delete",
+				],
+				is_active: true,
+			},
+			{
+				name: "Photographer",
+				description: "Access to manage photography services and bookings",
+				permissions: [
+					"booking:read",
+					"booking:update",
+					"service:read",
+					"customer:read",
+					"photographer:read",
+					"photographer:update",
+				],
+				is_active: true,
+			},
+		];
+
+		const roles = await Role.insertMany(rolesData);
+		console.log(`✅ Seeded ${roles.length} roles successfully!`);
+	} catch (error) {
+		console.error("❌ Error seeding roles:", error);
+		throw error;
+	}
+}
+
 async function runAll() {
 	try {
 		await connect();
 
-		console.log("🧹 Clearing all collections...");
+		// console.log("🧹 Clearing all collections...");
 		await clearCollections();
 
-		console.log("👤 Seeding users...");
-		const superAdmin = await seedUsers();
+		await seedRoles();
 
-		console.log("👥 Seeding customers...");
-		await seedCustomers();
+		// console.log("👤 Seeding users...");
+		// const superAdmin = await seedUsers();
 
-		console.log("📸 Seeding photographers...");
-		await seedPhotographers();
+		// console.log("👥 Seeding customers...");
+		// await seedCustomers();
 
-		console.log("🛠️ Seeding services...");
-		await seedServices();
+		// console.log("📸 Seeding photographers...");
+		// await seedPhotographers();
 
-		console.log("🎁 Seeding packages...");
-		await seedPackages();
+		// console.log("🛠️ Seeding services...");
+		// await seedServices();
 
-		console.log("📅 Seeding bookings...");
-		await seedBookings(superAdmin);
+		// console.log("🎁 Seeding packages...");
+		// await seedPackages();
 
-		console.log("💳 Seeding transactions...");
-		await seedTransactions(superAdmin);
+		// console.log("📅 Seeding bookings...");
+		// await seedBookings(superAdmin);
 
-		console.log("✅ All seeders completed successfully!");
+		// console.log("💳 Seeding transactions...");
+		// await seedTransactions(superAdmin);
+
+		// console.log("✅ All seeders completed successfully!");
 	} catch (error) {
 		console.error("❌ Seeding failed:", error);
 	} finally {

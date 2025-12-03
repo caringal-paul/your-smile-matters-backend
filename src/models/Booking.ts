@@ -63,6 +63,8 @@ export type BookingModel = Document &
 		// Virtual field - will be populated from Transaction model
 		amount_paid?: number;
 		is_payment_complete?: boolean;
+		_skipPastValidation?: boolean;
+		_skipAvailabilityCheck?: boolean;
 	};
 
 // Refactored booking schema
@@ -140,28 +142,30 @@ const bookingSchema = new Schema<BookingModel>(
 		booking_date: {
 			type: Date,
 			required: [true, "Booking date is required"],
-			validate: {
-				validator: function (date: Date) {
-					// Skip validation if date is unchanged (not new or not modified)
-					if (!this.isNew && !this.isModified("booking_date")) return true;
+			// validate: {
+			// 	validator: function (date: Date) {
+			// 		if (this._skipPastValidation) return true;
 
-					const now = new Date();
-					const today = new Date(
-						now.getFullYear(),
-						now.getMonth(),
-						now.getDate()
-					); // midnight today
-					const booking = new Date(
-						date.getFullYear(),
-						date.getMonth(),
-						date.getDate()
-					); // midnight booking date
+			// 		// Skip validation if date is unchanged (not new or not modified)
+			// 		if (!this.isNew && !this.isModified("booking_date")) return true;
 
-					// Allow today or future dates
-					return booking >= today;
-				},
-				message: "Booking date cannot be in the past",
-			},
+			// 		const now = new Date();
+			// 		const today = new Date(
+			// 			now.getFullYear(),
+			// 			now.getMonth(),
+			// 			now.getDate()
+			// 		); // midnight today
+			// 		const booking = new Date(
+			// 			date.getFullYear(),
+			// 			date.getMonth(),
+			// 			date.getDate()
+			// 		); // midnight booking date
+
+			// 		// Allow today or future dates
+			// 		return booking >= today;
+			// 	},
+			// 	message: "Booking date cannot be in the past",
+			// },
 		},
 		start_time: {
 			type: String,
@@ -269,6 +273,15 @@ const bookingSchema = new Schema<BookingModel>(
 		retrieved_by: { type: Types.ObjectId, ref: "User", default: null },
 		deleted_at: { type: Date, default: null },
 		retrieved_at: { type: Date, default: null },
+
+		_skipAvailabilityCheck: {
+			type: Boolean,
+			select: false,
+		},
+		_skipPastValidation: {
+			type: Boolean,
+			select: false,
+		},
 	},
 	{
 		timestamps: { createdAt: "created_at", updatedAt: "updated_at" },
@@ -298,7 +311,6 @@ bookingSchema.pre("save", async function (next) {
 			);
 		}
 
-		// Auto-populate services only if missing
 		if (
 			this.isNew &&
 			this.package_id &&
@@ -341,7 +353,6 @@ bookingSchema.pre("save", async function (next) {
 				.padStart(2, "0")}`;
 		}
 
-		// Photographer availability validation
 		if (
 			this.photographer_id &&
 			(this.isNew ||
@@ -358,34 +369,41 @@ bookingSchema.pre("save", async function (next) {
 				return next(customError(404, "Photographer not found"));
 			}
 
-			const normalizedDate = new Date(
-				this.booking_date.toISOString().split("T")[0]
-			);
-
-			const availableSlots = await photographer.getAvailableSlots(
-				normalizedDate,
-				this.session_duration_minutes
-			);
-
-			const requestedStart = parse(this.start_time, "HH:mm", normalizedDate);
-			const requestedEnd = parse(this.end_time, "HH:mm", normalizedDate);
-
-			const isAvailable = availableSlots.some((slot: string) => {
-				const [slotStartStr, slotEndStr] = slot.split(" - ");
-
-				const slotStart = parse(slotStartStr, "h:mm a", normalizedDate);
-				const slotEnd = parse(slotEndStr, "h:mm a", normalizedDate);
-
-				return (
-					requestedStart.getTime() === slotStart.getTime() &&
-					requestedEnd.getTime() === slotEnd.getTime()
+			// Skip availability check for seeding past records
+			if (!this._skipAvailabilityCheck) {
+				const normalizedDate = new Date(
+					this.booking_date.toISOString().split("T")[0]
 				);
-			});
 
-			if (!isAvailable) {
-				throw new Error(
-					`Photographer is not available at ${this.start_time} on ${normalizedDate}`
+				const availableSlots = await photographer.getAvailableSlots(
+					normalizedDate,
+					this.session_duration_minutes
 				);
+
+				const requestedStart = parse(this.start_time, "HH:mm", normalizedDate);
+				const requestedEnd = parse(this.end_time, "HH:mm", normalizedDate);
+
+				let isAvailable = availableSlots.some((slot: string) => {
+					const [slotStartStr, slotEndStr] = slot.split(" - ");
+					const slotStart = parse(slotStartStr, "h:mm a", normalizedDate);
+					const slotEnd = parse(slotEndStr, "h:mm a", normalizedDate);
+					return (
+						requestedStart.getTime() === slotStart.getTime() &&
+						requestedEnd.getTime() === slotEnd.getTime()
+					);
+				});
+
+				// If skipAvailabilityCheck is true, forcibly override to true
+				if (this._skipAvailabilityCheck) isAvailable = true;
+
+				if (!isAvailable) {
+					return next(
+						customError(
+							400,
+							`Photographer is not available at ${this.start_time} on ${this.booking_date}`
+						)
+					);
+				}
 			}
 		}
 

@@ -4,22 +4,12 @@ import {
 	ServiceCategory,
 	ServiceCategoryEnum,
 } from "../constants/service-category.constant";
-import { Service } from "./Service";
 import { Booking } from "./Booking";
-import {
-	addDays,
-	addMinutes,
-	format,
-	isAfter,
-	isBefore,
-	isSameDay,
-	parse,
-} from "date-fns";
+import { Role } from "./Role";
+import { addDays, addMinutes, format, isAfter, parse } from "date-fns";
 
 export const PHOTOGRAPHER_TIME_AVAILABILITY_REGEX =
 	/^(([0-1]?[0-9]|2[0-3]):[0-5][0-9]|24:00)$/;
-
-const PHOTOGRAPHER_TIME_INTERVAL_REGEX = /^([0-1]?[0-9]|2[0-3]):(00|30)$/;
 
 // Day of week enum using text for easier frontend handling
 export const DayOfWeekEnum = {
@@ -164,7 +154,8 @@ export interface PhotographerMethods {
 	 */
 	getAvailableSlots(
 		targetDate: Date,
-		sessionDurationMinutes?: number
+		sessionDurationMinutes?: number,
+		ignoreLeadTime?: boolean
 	): Promise<string[]>;
 
 	/**
@@ -183,6 +174,9 @@ export type PhotographerModel = Document &
 		mobile_number?: string | null;
 		bio?: string | null;
 		profile_image?: string | null;
+
+		role_id: Types.ObjectId;
+		password: string;
 
 		// Simplified specialties based on service categories
 		specialties: ServiceCategory[]; // Must have at least 1 category from the 5 options
@@ -210,6 +204,20 @@ const photographerSchema = new Schema<PhotographerModel>(
 			unique: true,
 			lowercase: true,
 		},
+
+		role_id: {
+			type: Schema.Types.ObjectId,
+			ref: "Role",
+			required: [true, "Role is required"],
+		},
+
+		password: {
+			type: String,
+			required: [true, "Password is required"],
+			minlength: 8,
+			select: false,
+		},
+
 		mobile_number: {
 			type: String,
 			trim: true,
@@ -217,7 +225,6 @@ const photographerSchema = new Schema<PhotographerModel>(
 		},
 		bio: {
 			type: String,
-			maxlength: 1000,
 			default: null,
 		},
 		profile_image: {
@@ -332,11 +339,20 @@ const photographerSchema = new Schema<PhotographerModel>(
 );
 
 // Custom validation to ensure at least 1 specialty
-photographerSchema.pre("save", function (next) {
+photographerSchema.pre("save", async function (next) {
 	if (!this.weekly_schedule || this.weekly_schedule.length === 0) {
 		this.weekly_schedule = mergeWeeklySchedule([]);
 	} else {
 		this.weekly_schedule = mergeWeeklySchedule(this.weekly_schedule);
+	}
+
+	if (!this.role_id) {
+		const photographerRole = await Role.findOne({ name: "Photographer" });
+		if (photographerRole) {
+			this.role_id = photographerRole._id as Types.ObjectId;
+		} else {
+			return next(new Error("Photographer role not found in database"));
+		}
 	}
 
 	if (!this.specialties || this.specialties.length === 0) {
@@ -370,7 +386,8 @@ photographerSchema.pre("findOneAndUpdate", function (next) {
 
 photographerSchema.methods.getAvailableSlots = async function (
 	targetDate: Date,
-	sessionDurationMinutes: number = 120
+	sessionDurationMinutes: number = 120,
+	ignoreLeadTime: boolean = false
 ): Promise<string[]> {
 	const availableSlots: string[] = [];
 
@@ -454,9 +471,9 @@ photographerSchema.methods.getAvailableSlots = async function (
 	const now = new Date();
 
 	// Compute the earliest allowed start datetime based on lead time
-	const earliestAllowedStart = new Date(
-		now.getTime() + leadTimeHours * 60 * 60 * 1000
-	);
+	const earliestAllowedStart = ignoreLeadTime
+		? new Date(0) // allow any date
+		: new Date(now.getTime() + leadTimeHours * 60 * 60 * 1000);
 
 	// Step through schedule in 30-min increments
 	let current = workStart;
@@ -571,92 +588,6 @@ photographerSchema.statics.getAvailablePhotographers = async function (
 	return availablePhotographers;
 };
 
-// photographerSchema.statics.getPhotographersByTimeRange = async function (
-// 	targetDate: Date,
-// 	startTime: string,
-// 	endTime: string
-// ) {
-// 	const photographers = await this.find();
-
-// 	const results: { photographer: PhotographerModel }[] = [];
-
-// 	const startDateTime = parse(startTime, "HH:mm", targetDate);
-// 	const endDateTime = parse(endTime, "HH:mm", targetDate);
-
-// 	for (const photographer of photographers) {
-// 		const dayOfWeek = targetDate.toLocaleDateString("en-US", {
-// 			weekday: "long",
-// 		}) as DayOfWeek;
-
-// 		let schedule;
-
-// 		// ✅ Check for date overrides (OT or Leave)
-// 		if (photographer.date_overrides && photographer.date_overrides.length > 0) {
-// 			const override = photographer.date_overrides.find((o: any) =>
-// 				isSameDay(new Date(o.date), targetDate)
-// 			);
-
-// 			if (override) {
-// 				// Photographer on leave
-// 				if (!override.is_available) continue;
-
-// 				// Use OT hours or fallback to regular schedule
-// 				schedule =
-// 					override.custom_hours ||
-// 					photographer.weekly_schedule?.find(
-// 						(s: any) => s.day_of_week === dayOfWeek
-// 					);
-// 			} else {
-// 				// No override → regular schedule
-// 				schedule = photographer.weekly_schedule?.find(
-// 					(s: any) => s.day_of_week === dayOfWeek
-// 				);
-// 			}
-// 		} else {
-// 			// No overrides at all → regular schedule
-// 			schedule = photographer.weekly_schedule?.find(
-// 				(s: any) => s.day_of_week === dayOfWeek
-// 			);
-// 		}
-
-// 		if (!schedule || !schedule.is_available) continue;
-
-// 		// ✅ Check working hours
-// 		const workStart = parse(schedule.start_time, "HH:mm", targetDate);
-// 		const workEnd = parse(schedule.end_time, "HH:mm", targetDate);
-// 		if (startDateTime < workStart || endDateTime > workEnd) continue;
-
-// 		// ✅ Check for booking conflicts
-// 		const startOfDay = new Date(targetDate);
-// 		startOfDay.setHours(0, 0, 0, 0);
-// 		const endOfDay = new Date(targetDate);
-// 		endOfDay.setHours(23, 59, 59, 999);
-
-// 		const existingBookings = await Booking.find({
-// 			photographer_id: photographer._id,
-// 			booking_date: { $gte: startOfDay, $lte: endOfDay },
-// 			status: { $nin: ["Cancelled", "Rejected"] },
-// 		}).select("start_time session_duration_minutes");
-
-// 		const hasConflict = existingBookings.some((booking) => {
-// 			const bookedStart = parse(booking.start_time, "HH:mm", targetDate);
-// 			const bookedEnd = addMinutes(
-// 				bookedStart,
-// 				booking.session_duration_minutes || 120
-// 			);
-// 			return startDateTime < bookedEnd && endDateTime > bookedStart;
-// 		});
-
-// 		if (hasConflict) continue;
-
-// 		results.push({ photographer });
-// 	}
-
-// 	return results;
-// };
-
-// Method to check if photographer can handle specific service categories
-
 photographerSchema.methods.canHandleServiceCategories = function (
 	requiredCategories: ServiceCategory[]
 ): boolean {
@@ -677,6 +608,7 @@ photographerSchema.statics.findByServiceCategories = function (
 
 // Indexes for performance
 photographerSchema.index({ specialties: 1 });
+photographerSchema.index({ role_id: 1 });
 photographerSchema.index({ "date_overrides.date": 1 });
 photographerSchema.index({ is_active: 1 });
 

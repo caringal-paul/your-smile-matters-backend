@@ -1,6 +1,8 @@
 import nodemailer, { Transporter, SentMessageInfo } from "nodemailer";
 
 export interface EmailOptions {
+	from?: string;
+	replyTo?: string;
 	to: string | string[];
 	subject: string;
 	text?: string;
@@ -40,7 +42,8 @@ export const sendEmail = async (
 		const transport = getTransporter();
 
 		const info = await transport.sendMail({
-			from: process.env.SMTP_USER,
+			from: options.from || process.env.SMTP_USER,
+			replyTo: options.replyTo,
 			to: toArray.join(", "),
 			cc: options.cc?.join(", "),
 			bcc: options.bcc?.join(", "),
@@ -50,7 +53,6 @@ export const sendEmail = async (
 			attachments: options.attachments,
 		});
 
-		console.log("Email sent:", info.messageId);
 		return info;
 	} catch (error) {
 		console.error("Error sending email:", error);

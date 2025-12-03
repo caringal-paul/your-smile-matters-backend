@@ -1,8 +1,10 @@
 import { Router, Request, NextFunction } from "express";
-import { Service } from "../../models/Service";
+import { Service, ServiceModel } from "../../models/Service";
 import { Types } from "mongoose";
 import { TypedResponse } from "../../types/base.types";
 import { customError } from "../../middleware/errorHandler";
+import { Transaction } from "../../models/Transaction";
+import { ServiceCategory } from "../../constants/service-category.constant";
 
 const router = Router();
 
@@ -146,38 +148,6 @@ router.get(
 			});
 		} catch (error) {
 			console.error("Error fetching services for browsing:", error);
-			next(error);
-		}
-	}
-);
-
-/**
- * GET /services/:id
- * Public - for clients to browse available services
- */
-router.get(
-	"/:id",
-	async (
-		req: Request<{ id: string }>,
-		res: TypedResponse<ServiceLean>,
-		next: NextFunction
-	) => {
-		try {
-			const { id } = req.params;
-
-			const service = await Service.findById(id).lean<ServiceLean | null>();
-
-			if (!service) {
-				throw customError(404, "Service not found");
-			}
-
-			res.status(200).json({
-				status: 200,
-				message: "Service fetched successfully!",
-				data: service,
-			});
-		} catch (error) {
-			console.error("Error fetching service:", error);
 			next(error);
 		}
 	}
@@ -505,90 +475,129 @@ router.get(
 
 /**
  * GET /services/recommendations
- * Public - service recommendations based on category mix
- * TODO: Improve to look at the newest or most popular or most sales accumulated
- * TODO: Base it on TRANSACTION model
+ * Public - search services by name or description
  */
 router.get(
 	"/recommendations",
-	async (
-		req: Request,
-		res: TypedResponse<RecommendationsResponse>,
-		next: NextFunction
-	) => {
+	async (req: Request, res: TypedResponse<any>, next: NextFunction) => {
 		try {
-			// Get recommended services from each main category
-			const [photography, beauty, styling, equipment] = await Promise.all([
-				Service.find({
-					category: "Photography",
-					is_available: true,
-					is_active: true,
-					deleted_at: null,
-				})
-					.select(
-						"name description category price old_price duration_minutes is_available service_gallery"
-					)
-					.sort({ name: 1 })
-					.limit(3)
-					.lean<ServiceLean[]>(),
+			const recentDate = new Date();
+			recentDate.setDate(recentDate.getDate() - 90);
 
-				Service.find({
-					category: "Beauty",
-					is_available: true,
-					is_active: true,
-					deleted_at: null,
-				})
-					.select(
-						"name description category price old_price duration_minutes is_available service_gallery"
-					)
-					.sort({ name: 1 })
-					.limit(3)
-					.lean<ServiceLean[]>(),
-
-				Service.find({
-					category: "Styling",
-					is_available: true,
-					is_active: true,
-					deleted_at: null,
-				})
-					.select(
-						"name description category price old_price duration_minutes is_available service_gallery"
-					)
-					.sort({ name: 1 })
-					.limit(2)
-					.lean<ServiceLean[]>(),
-
-				Service.find({
-					category: "Equipment",
-					is_available: true,
-					is_active: true,
-					deleted_at: null,
-				})
-					.select(
-						"name description category price old_price duration_minutes is_available service_gallery"
-					)
-					.sort({ name: 1 })
-					.limit(2)
-					.lean<ServiceLean[]>(),
+			// Aggregate service metrics
+			const serviceMetrics = await Transaction.aggregate([
+				{
+					$match: {
+						status: "Completed",
+						transaction_type: { $in: ["Payment", "Partial", "Balance"] },
+						is_active: true,
+						deleted_at: null,
+					},
+				},
+				{
+					$lookup: {
+						from: "bookings",
+						localField: "booking_id",
+						foreignField: "_id",
+						as: "booking",
+					},
+				},
+				{ $unwind: "$booking" },
+				{ $unwind: "$booking.services" },
+				{
+					$group: {
+						_id: "$booking.services.service_id",
+						total_revenue: { $sum: "$amount" },
+						booking_count: { $sum: 1 },
+						recent_bookings: {
+							$sum: {
+								$cond: [{ $gte: ["$transaction_date", recentDate] }, 1, 0],
+							},
+						},
+						avg_booking_value: { $avg: "$amount" },
+					},
+				},
+				{
+					$addFields: {
+						popularity_score: {
+							$add: [
+								{ $multiply: ["$total_revenue", 0.4] },
+								{ $multiply: ["$booking_count", 50] },
+								{ $multiply: ["$recent_bookings", 100] },
+							],
+						},
+					},
+				},
 			]);
 
-			const mapServices = (services: ServiceLean[]): ServiceListResponse[] =>
-				services.map(convertToListResponse);
+			const metricsMap = new Map(
+				serviceMetrics.map((m) => [m._id.toString(), m])
+			);
 
-			const recommendations: RecommendationsResponse = {
-				photography: mapServices(photography),
-				beauty: mapServices(beauty),
-				styling: mapServices(styling),
-				equipment: mapServices(equipment),
-			};
+			// Fetch all active services
+			const services = await Service.find({
+				is_available: true,
+				is_active: true,
+				deleted_at: null,
+			}).lean();
+
+			// Attach metrics and sort by popularity_score descending, then price ascending
+			const recommendedServices = services
+				.map((s) => ({
+					...s,
+					metrics: metricsMap.get(s._id.toString()) ?? {
+						popularity_score: 0,
+						total_revenue: 0,
+						booking_count: 0,
+						recent_bookings: 0,
+						avg_booking_value: 0,
+					},
+				}))
+				.sort((a, b) => {
+					const diff = b.metrics.popularity_score - a.metrics.popularity_score;
+					return diff !== 0 ? diff : a.price - b.price;
+				})
+				.slice(0, 10); // <-- Limit to top 10
 
 			res.status(200).json({
 				status: 200,
-				message: "Service recommendations fetched successfully!",
-				data: recommendations,
+				message: "Top 10 recommended services fetched successfully!",
+				data: recommendedServices,
 			});
 		} catch (error) {
 			console.error("Error fetching service recommendations:", error);
+			next(error);
+		}
+	}
+);
+
+/**
+ * GET /services/:id
+ * Public - for clients to browse available services
+ */
+router.get(
+	"/:id",
+	async (
+		req: Request<{ id: string }>,
+		res: TypedResponse<ServiceLean>,
+		next: NextFunction
+	) => {
+		try {
+			const { id } = req.params;
+
+			const service = await Service.findById(id).lean<ServiceLean | null>();
+
+			if (!service) {
+				throw customError(404, "Service not found");
+			}
+
+			res.status(200).json({
+				status: 200,
+				message: "Service fetched successfully!",
+				data: service,
+			});
+		} catch (error) {
+			console.error("Error fetching service:", error);
 			next(error);
 		}
 	}

@@ -336,10 +336,9 @@ router.post(
 				throw customError(400, "Payment method is required");
 			}
 
-			// Calculate remaining balance - include all non-rejected transactions
 			const allTransactions = await Transaction.find({
 				booking_id: bookingId,
-				status: { $ne: "Failed" }, // Exclude only rejected/failed transactions
+				status: { $nin: ["Failed", "Refunded"] }, // EXCLUDE refunded
 				transaction_type: { $in: ["Payment", "Partial", "Balance"] },
 			});
 

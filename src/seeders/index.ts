@@ -1,5 +1,7 @@
-import mongoose from "mongoose";
 import dotenv from "dotenv";
+dotenv.config();
+
+import mongoose from "mongoose";
 import { logError, logInfo, logSuccess } from "./utils/seed.logger";
 import { seedUsers } from "./user.seeder";
 import { seedCustomers } from "./customer.seeder";
@@ -7,13 +9,10 @@ import { seedPhotographers } from "./photographer.seeder";
 import { seedServices } from "./service.seeder";
 import { seedPackages } from "./package.seeder";
 import { seedBookingsAndTransactions } from "./booking-transaction.seeder";
-
-// Import all seeders
-
-dotenv.config();
+import { seedBookingModifications } from "./booking-modification.seeder";
 
 const MONGO_URI =
-	process.env.MONGO_URI || "mongodb://localhost:27017/capstone-dev";
+	process.env.MONGODB_URI || "mongodb://localhost:27017/capstone-dev";
 
 const run = async () => {
 	const arg = process.argv[2]; // e.g. "users", "photographers", etc.
@@ -48,6 +47,9 @@ const run = async () => {
 				break;
 			case "bookings-transactions":
 				await seedBookingsAndTransactions();
+				break;
+			case "booking-modifications":
+				await seedBookingModifications();
 				break;
 			default:
 				logError(`❌ Unknown seeder: ${arg}`);

@@ -5,6 +5,8 @@ import {
 	startOfMonth,
 	endOfMonth,
 	subMonths,
+	addDays,
+	subDays,
 } from "date-fns";
 import mongoose from "mongoose";
 import {
@@ -22,7 +24,7 @@ const router = express.Router();
 // ANALYTICS RESPONSE TYPES
 // ============================================
 
-interface OverviewMetrics {		
+interface OverviewMetrics {
 	bookings: {
 		total: number;
 		thisMonth: number;
@@ -87,6 +89,7 @@ interface PhotographerPerformance {
 	totalRevenue: number;
 	refundedAmount: number;
 	netRevenue: number;
+	profileImage?: string;
 	averageRating: number;
 	totalRatings: number;
 }
@@ -99,6 +102,7 @@ interface TopCustomer {
 	totalSpent: number;
 	refundedAmount: number;
 	netSpent: number;
+	profileImage?: string;
 	averageBookingValue: number;
 	lastBookingDate: Date;
 }
@@ -280,155 +284,189 @@ async function getRefundsByBooking(
  * @desc    Get dashboard overview metrics (bookings, revenue, growth)
  * @access  Private (Admin/Manager)
  */
-router.get(
-	"/overview",
-	authenticateAmiUserToken,
-	async (
-		req: AuthenticatedRequest,
-		res: TypedResponse<OverviewMetrics>,
-		next: NextFunction
-	) => {
-		try {
-			const today = new Date();
-			const startToday = startOfDay(today);
-			const endToday = endOfDay(today);
-			const startThisMonth = startOfMonth(today);
-			const endThisMonth = endOfMonth(today);
-			const startLastMonth = startOfMonth(subMonths(today, 1));
-			const endLastMonth = endOfMonth(subMonths(today, 1));
+router.get("/overview", authenticateAmiUserToken, async (req, res, next) => {
+	try {
+		const today = new Date();
+		const startToday = startOfDay(today);
+		const endToday = endOfDay(today);
 
-			// Total bookings comparison
-			const [
-				totalBookings,
-				thisMonthBookings,
-				lastMonthBookings,
-				todayBookings,
-				pendingBookings,
-				confirmedBookings,
-				ongoingBookings,
-			] = await Promise.all([
-				Booking.countDocuments({ is_active: true }),
-				Booking.countDocuments({
-					is_active: true,
-					created_at: { $gte: startThisMonth },
-				}),
-				Booking.countDocuments({
-					is_active: true,
-					created_at: { $gte: startLastMonth, $lte: endLastMonth },
-				}),
-				Booking.countDocuments({
-					is_active: true,
-					booking_date: { $gte: startToday, $lte: endToday },
-				}),
-				Booking.countDocuments({ is_active: true, status: "Pending" }),
-				Booking.countDocuments({ is_active: true, status: "Confirmed" }),
-				Booking.countDocuments({ is_active: true, status: "Ongoing" }),
-			]);
+		// OPTION 1: Compare last 30 days vs previous 30 days (Rolling periods)
+		const last30DaysStart = startOfDay(subDays(today, 29)); // Last 30 days including today
+		const previous30DaysStart = startOfDay(subDays(today, 59));
+		const previous30DaysEnd = endOfDay(subDays(today, 30));
 
-			// Revenue metrics
-			const revenueData = await Booking.aggregate([
-				{
-					$match: {
-						is_active: true,
-						status: { $in: ["Completed", "Confirmed", "Ongoing"] },
-					},
+		// OPTION 2: Also get current month data for display
+		const startThisMonth = startOfMonth(today);
+
+		// Total bookings with rolling comparison
+		const [
+			totalBookings,
+			last30DaysBookings,
+			previous30DaysBookings,
+			thisMonthBookings,
+			todayBookings,
+			pendingBookings,
+			confirmedBookings,
+			ongoingBookings,
+		] = await Promise.all([
+			Booking.countDocuments({ is_active: true }),
+			Booking.countDocuments({
+				is_active: true,
+				created_at: { $gte: last30DaysStart, $lte: endToday },
+			}),
+			Booking.countDocuments({
+				is_active: true,
+				created_at: { $gte: previous30DaysStart, $lte: previous30DaysEnd },
+			}),
+			Booking.countDocuments({
+				is_active: true,
+				created_at: { $gte: startThisMonth, $lte: endToday },
+			}),
+			Booking.countDocuments({
+				is_active: true,
+				booking_date: { $gte: startToday, $lte: endToday },
+			}),
+			Booking.countDocuments({ is_active: true, status: "Pending" }),
+			Booking.countDocuments({ is_active: true, status: "Confirmed" }),
+			Booking.countDocuments({ is_active: true, status: "Ongoing" }),
+		]);
+
+		// Revenue metrics with rolling comparison
+		const revenueData = await Booking.aggregate([
+			{
+				$match: {
+					is_active: true,
+					status: { $in: ["Completed", "Confirmed", "Ongoing"] },
 				},
-				{
-					$group: {
-						_id: null,
-						totalRevenue: { $sum: "$final_amount" },
-						thisMonthRevenue: {
-							$sum: {
-								$cond: [
-									{ $gte: ["$created_at", startThisMonth] },
-									"$final_amount",
-									0,
-								],
-							},
+			},
+			{
+				$group: {
+					_id: null,
+					totalRevenue: { $sum: "$final_amount" },
+					last30DaysRevenue: {
+						$sum: {
+							$cond: [
+								{
+									$and: [
+										{ $gte: ["$created_at", last30DaysStart] },
+										{ $lte: ["$created_at", endToday] },
+									],
+								},
+								"$final_amount",
+								0,
+							],
 						},
-						lastMonthRevenue: {
-							$sum: {
-								$cond: [
-									{
-										$and: [
-											{ $gte: ["$created_at", startLastMonth] },
-											{ $lte: ["$created_at", endLastMonth] },
-										],
-									},
-									"$final_amount",
-									0,
-								],
-							},
+					},
+					previous30DaysRevenue: {
+						$sum: {
+							$cond: [
+								{
+									$and: [
+										{ $gte: ["$created_at", previous30DaysStart] },
+										{ $lte: ["$created_at", previous30DaysEnd] },
+									],
+								},
+								"$final_amount",
+								0,
+							],
 						},
-						averageBookingValue: { $avg: "$final_amount" },
-						totalDiscount: { $sum: "$discount_amount" },
 					},
+					thisMonthRevenue: {
+						$sum: {
+							$cond: [
+								{
+									$and: [
+										{ $gte: ["$created_at", startThisMonth] },
+										{ $lte: ["$created_at", endToday] },
+									],
+								},
+								"$final_amount",
+								0,
+							],
+						},
+					},
+					averageBookingValue: { $avg: "$final_amount" },
+					totalDiscount: { $sum: "$discount_amount" },
 				},
-			]);
+			},
+		]);
 
-			const revenue = revenueData[0] || {
-				totalRevenue: 0,
-				thisMonthRevenue: 0,
-				lastMonthRevenue: 0,
-				averageBookingValue: 0,
-				totalDiscount: 0,
-			};
+		const revenue = revenueData[0] || {
+			totalRevenue: 0,
+			last30DaysRevenue: 0,
+			previous30DaysRevenue: 0,
+			thisMonthRevenue: 0,
+			averageBookingValue: 0,
+			totalDiscount: 0,
+		};
 
-			// Get refund amounts
-			const [totalRefunds, thisMonthRefunds, lastMonthRefunds] =
-				await Promise.all([
-					getRefundedAmount(),
-					getRefundedAmount(undefined, startThisMonth, endThisMonth),
-					getRefundedAmount(undefined, startLastMonth, endLastMonth),
-				]);
+		const [
+			totalRefunds,
+			last30DaysRefunds,
+			previous30DaysRefunds,
+			thisMonthRefunds,
+		] = await Promise.all([
+			getRefundedAmount(),
+			getRefundedAmount(undefined, last30DaysStart, endToday),
+			getRefundedAmount(undefined, previous30DaysStart, previous30DaysEnd),
+			getRefundedAmount(undefined, startThisMonth, endToday),
+		]);
 
-			// Calculate net revenue
-			const netTotalRevenue = revenue.totalRevenue - totalRefunds;
-			const netThisMonthRevenue = revenue.thisMonthRevenue - thisMonthRefunds;
-			const netLastMonthRevenue = revenue.lastMonthRevenue - lastMonthRefunds;
+		const netTotalRevenue = revenue.totalRevenue - totalRefunds;
+		const netLast30DaysRevenue = revenue.last30DaysRevenue - last30DaysRefunds;
+		const netPrevious30DaysRevenue =
+			revenue.previous30DaysRevenue - previous30DaysRefunds;
+		const netThisMonthRevenue = revenue.thisMonthRevenue - thisMonthRefunds;
 
-			// Calculate growth percentages
-			const bookingGrowth =
-				lastMonthBookings > 0
-					? ((thisMonthBookings - lastMonthBookings) / lastMonthBookings) * 100
-					: 0;
+		// Growth calculations using equal 30-day periods
+		const bookingGrowth =
+			previous30DaysBookings > 0
+				? ((last30DaysBookings - previous30DaysBookings) /
+						previous30DaysBookings) *
+				  100
+				: last30DaysBookings > 0
+				? 100
+				: 0;
 
-			const revenueGrowth =
-				netLastMonthRevenue > 0
-					? ((netThisMonthRevenue - netLastMonthRevenue) /
-							netLastMonthRevenue) *
-					  100
-					: 0;
+		const revenueGrowth =
+			netPrevious30DaysRevenue > 0
+				? ((netLast30DaysRevenue - netPrevious30DaysRevenue) /
+						netPrevious30DaysRevenue) *
+				  100
+				: netLast30DaysRevenue > 0
+				? 100
+				: 0;
 
-			res.status(200).json({
-				status: 200,
-				message: "Overview metrics fetched successfully!",
-				data: {
-					bookings: {
-						total: totalBookings,
-						thisMonth: thisMonthBookings,
-						today: todayBookings,
-						pending: pendingBookings,
-						confirmed: confirmedBookings,
-						ongoing: ongoingBookings,
-						growth: parseFloat(bookingGrowth.toFixed(2)),
-					},
-					revenue: {
-						total: revenue.totalRevenue,
-						thisMonth: revenue.thisMonthRevenue,
-						average: revenue.averageBookingValue,
-						growth: parseFloat(revenueGrowth.toFixed(2)),
-						totalDiscounts: revenue.totalDiscount,
-						totalRefunds: totalRefunds,
-						netRevenue: netTotalRevenue,
-					},
+		res.status(200).json({
+			status: 200,
+			message: "Overview metrics fetched successfully!",
+			data: {
+				bookings: {
+					total: totalBookings,
+					last30Days: last30DaysBookings,
+					thisMonth: thisMonthBookings,
+					today: todayBookings,
+					pending: pendingBookings,
+					confirmed: confirmedBookings,
+					ongoing: ongoingBookings,
+					growth: parseFloat(bookingGrowth.toFixed(2)), // Now compares equal periods
 				},
-			});
-		} catch (error) {
-			next(error);
-		}
+				revenue: {
+					total: revenue.totalRevenue,
+					last30Days: netLast30DaysRevenue,
+					thisMonth: netThisMonthRevenue,
+					average: revenue.averageBookingValue,
+					growth: parseFloat(revenueGrowth.toFixed(2)), // Now compares equal periods
+					totalDiscounts: revenue.totalDiscount,
+					totalRefunds: totalRefunds,
+					netRevenue: netTotalRevenue,
+				},
+			},
+		});
+	} catch (error) {
+		next(error);
 	}
-);
+});
 
 /**
  * @route   GET /api/analytics/trends
@@ -847,6 +885,7 @@ router.get(
 						refundedAmount,
 						netSpent: customer.totalSpent - refundedAmount,
 						averageBookingValue: customer.averageBookingValue,
+						profileImage: customer.profileImage,
 						lastBookingDate: customer.lastBookingDate,
 					};
 				})

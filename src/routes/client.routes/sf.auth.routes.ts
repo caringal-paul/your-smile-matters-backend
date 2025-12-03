@@ -42,7 +42,7 @@ export type CustomerAuthResponse = {
 };
 
 export type CustomerLoginResponse = {
-	customer: CustomerAuthResponse;
+	customer: CustomerModel;
 	access_token: string;
 	refresh_token: string;
 	expires_in: string;
@@ -99,24 +99,11 @@ router.post(
 				foundCustomer.email
 			);
 
-			// Prepare customer response
-			const customerResponse: CustomerAuthResponse = {
-				_id: foundCustomer._id.toString(),
-				customer_no: foundCustomer.customer_no,
-				profile_image: foundCustomer.profile_image,
-				email: foundCustomer.email,
-				first_name: foundCustomer.first_name,
-				last_name: foundCustomer.last_name,
-				mobile_number: foundCustomer.mobile_number,
-				gender: foundCustomer.gender,
-				is_active: foundCustomer.is_active,
-			};
-
 			res.status(200).json({
 				status: 200,
 				message: "Login successful",
 				data: {
-					customer: customerResponse,
+					customer: foundCustomer,
 					access_token,
 					refresh_token,
 					expires_in: config.accessTokenExpiresIn,
@@ -222,7 +209,7 @@ router.get(
 	authenticateCustomerToken,
 	async (
 		req: CustomerAuthenticatedRequest,
-		res: TypedResponse<{ customer: CustomerAuthResponse }>,
+		res: TypedResponse<CustomerModel>,
 		next: NextFunction
 	) => {
 		try {
@@ -237,23 +224,23 @@ router.get(
 				throw customError(404, "Customer not found");
 			}
 
-			const customerResponse: CustomerAuthResponse = {
-				_id: customer._id.toString(),
-				customer_no: customer.customer_no,
-				email: customer.email,
-				first_name: customer.first_name,
-				last_name: customer.last_name,
-				mobile_number: customer.mobile_number,
-				gender: customer.gender,
-				is_active: customer.is_active,
-				created_at: customer.created_at,
-				updated_at: customer.updated_at,
-			};
+			// const customerResponse: CustomerAuthResponse = {
+			// 	_id: customer._id.toString(),
+			// 	customer_no: customer.customer_no,
+			// 	email: customer.email,
+			// 	first_name: customer.first_name,
+			// 	last_name: customer.last_name,
+			// 	mobile_number: customer.mobile_number,
+			// 	gender: customer.gender,
+			// 	is_active: customer.is_active,
+			// 	created_at: customer.created_at,
+			// 	updated_at: customer.updated_at,
+			// };
 
 			res.status(200).json({
 				status: 200,
 				message: "Current customer fetched successfully",
-				data: { customer: customerResponse },
+				data: customer,
 			});
 		} catch (error) {
 			next(error);

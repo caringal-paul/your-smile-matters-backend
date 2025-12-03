@@ -13,6 +13,7 @@ export type UserModel = Document &
 		last_name: string;
 		mobile_number: string;
 		password: string;
+		profile_image?: string | null;
 		role_id: Types.ObjectId;
 	};
 
@@ -64,6 +65,8 @@ const userSchema = new Schema<UserModel>(
 				message: "Role does not exist",
 			},
 		},
+
+		profile_image: { type: String, default: null },
 
 		// Metadata
 		is_active: { type: Boolean, default: true },

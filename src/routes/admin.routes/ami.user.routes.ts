@@ -39,6 +39,7 @@ type UserResponse = MetaData & {
 	last_name: string;
 	mobile_number: string;
 	role_id: string;
+	profile_image?: string | null;
 	role_and_permissions: {
 		name: string;
 		description?: string;
@@ -90,6 +91,7 @@ router.get(
 						is_active: user.is_active,
 						updated_at: user.updated_at,
 						role_id: roleDoc?._id?.toString() ?? "",
+						profile_image: user.profile_image ?? null,
 						role_and_permissions: roleDoc
 							? {
 									name: roleDoc.name,
@@ -157,6 +159,7 @@ router.get(
 				_id: _id.toString(),
 				...userWithoutObjectId,
 				role_id: String(roleDoc?._id) ?? String(user.role_id) ?? "",
+				profile_image: user.profile_image ?? null,
 				role_and_permissions: roleDoc
 					? {
 							name: roleDoc.name,
@@ -188,8 +191,15 @@ router.post(
 		next: NextFunction
 	) => {
 		try {
-			const { username, email, first_name, last_name, mobile_number, role_id } =
-				req.body;
+			const {
+				username,
+				email,
+				first_name,
+				last_name,
+				mobile_number,
+				role_id,
+				profile_image,
+			} = req.body;
 
 			// const userId = req.user?._id;
 			// if (!userId)
@@ -218,6 +228,7 @@ router.post(
 				role_id,
 				is_active: true,
 				version: 0,
+				profile_image: profile_image || null,
 				// created_by: new Types.ObjectId(userId),
 				// updated_by: new Types.ObjectId(userId),
 				created_by: new Types.ObjectId(),
@@ -247,6 +258,7 @@ router.post(
 				last_name: user.last_name,
 				mobile_number: user.mobile_number,
 				role_id: rolePopulated?._id?.toString() ?? "",
+				profile_image: user.profile_image,
 				role_and_permissions: rolePopulated
 					? {
 							name: rolePopulated.name,
@@ -316,6 +328,7 @@ router.patch(
 				last_name,
 				mobile_number,
 				role_id,
+				profile_image,
 				is_active,
 			} = req.body;
 
@@ -359,6 +372,7 @@ router.patch(
 			if (mobile_number !== undefined) user.mobile_number = mobile_number;
 			if (role_id !== undefined) user.role_id = role_id;
 			if (is_active !== undefined) user.is_active = is_active;
+			if (profile_image !== undefined) user.profile_image = profile_image;
 
 			// Track audit info (if you use created_by/updated_by in your schema)
 			user.updated_by = user.updated_by = new Types.ObjectId(userId);
@@ -386,6 +400,7 @@ router.patch(
 				created_at: user.created_at,
 				updated_at: user.updated_at,
 				is_active: user.is_active,
+				profile_image: user.profile_image ?? null,
 				created_by: user.created_by,
 				updated_by: user.updated_by,
 				role_and_permissions: roleDoc

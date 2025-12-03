@@ -307,6 +307,185 @@ router.get(
 
 // GET /api/bookings
 // ? GET ALL BOOKINGS FOR TABLE OF AMI
+// router.get(
+// 	"/",
+// 	authenticateAmiUserToken,
+// 	async (
+// 		req: AuthenticatedRequest,
+// 		res: TypedResponse<BookingListItem[]>,
+// 		next: NextFunction
+// 	) => {
+// 		try {
+// 			const {
+// 				status,
+// 				customer_id,
+// 				photographer_id,
+// 				date_from,
+// 				date_to,
+// 				search,
+// 				payment_status,
+// 				sort_by = "booking_date",
+// 				sort_order = "desc",
+// 				page = 1,
+// 				limit = 20,
+// 			} = req.query;
+
+// 			const filter: mongoose.FilterQuery<typeof Booking> = { is_active: true };
+
+// 			if (status && status !== "all") {
+// 				filter.status = status;
+// 			}
+
+// 			if (customer_id) {
+// 				if (!mongoose.Types.ObjectId.isValid(customer_id as string)) {
+// 					throw customError(400, "Invalid customer ID format");
+// 				}
+// 				filter.customer_id = customer_id;
+// 			}
+
+// 			if (photographer_id) {
+// 				if (!mongoose.Types.ObjectId.isValid(photographer_id as string)) {
+// 					throw customError(400, "Invalid photographer ID format");
+// 				}
+// 				filter.photographer_id = photographer_id;
+// 			}
+
+// 			if (date_from || date_to) {
+// 				filter.booking_date = {};
+// 				if (date_from) filter.booking_date.$gte = new Date(date_from as string);
+// 				if (date_to) filter.booking_date.$lte = new Date(date_to as string);
+// 			}
+
+// 			if (search) {
+// 				filter.$or = [
+// 					{ booking_reference: { $regex: search, $options: "i" } },
+// 					{ location: { $regex: search, $options: "i" } },
+// 				];
+// 			}
+
+// 			const sortObj: Record<string, 1 | -1> = {};
+// 			sortObj[sort_by as string] = sort_order === "desc" ? -1 : 1;
+
+// 			const skip = (Number(page) - 1) * Number(limit);
+
+// 			// Fetch bookings WITHOUT service population
+// 			const bookings = await Booking.find(filter)
+// 				.populate<{ customer_id: PopulatedCustomer }>({
+// 					path: "customer_id",
+// 					select:
+// 						"first_name last_name email mobile_number profile_image gender customer_no",
+// 				})
+// 				.populate<{ photographer_id: PopulatedPhotographer }>({
+// 					path: "photographer_id",
+// 					select: "name email specialties bio profile_image mobile_number",
+// 				})
+// 				.sort(sortObj)
+// 				.skip(skip)
+// 				.limit(Number(limit))
+// 				.lean();
+
+// 			// Collect all unique service IDs from all bookings
+// 			const serviceIds = new Set<string>();
+// 			bookings.forEach((booking: any) => {
+// 				booking.services?.forEach((service: any) => {
+// 					if (service.service_id) {
+// 						serviceIds.add(service.service_id.toString());
+// 					}
+// 				});
+// 			});
+
+// 			// Fetch all services in one query
+// 			const services = await Service.find({
+// 				_id: { $in: Array.from(serviceIds) },
+// 			})
+// 				.select("name category price duration_minutes")
+// 				.lean();
+
+// 			// Create a map for quick lookup
+// 			const serviceMap = new Map(
+// 				services.map((service: any) => [service._id.toString(), service])
+// 			);
+
+// 			// Manually populate services in each booking
+// 			const populatedBookings = bookings.map((booking: any) => {
+// 				return {
+// 					...booking,
+// 					services: booking.services.map((service: any) => ({
+// 						...service,
+// 						service_id: serviceMap.get(service.service_id.toString()) || null,
+// 					})),
+// 				};
+// 			});
+
+// 			const bookingsWithPayment = await Promise.all(
+// 				populatedBookings.map(async (booking: any) => {
+// 					const paymentStatus = await getBookingPaymentStatus(
+// 						booking._id.toString()
+// 					);
+// 					return { booking, paymentStatus };
+// 				})
+// 			);
+
+// 			let filteredBookings = bookingsWithPayment;
+
+// 			if (payment_status === "paid") {
+// 				filteredBookings = bookingsWithPayment.filter(
+// 					(b) => b.paymentStatus.is_payment_complete
+// 				);
+// 			} else if (payment_status === "unpaid") {
+// 				filteredBookings = bookingsWithPayment.filter(
+// 					(b) => b.paymentStatus.amount_paid === 0
+// 				);
+// 			} else if (payment_status === "partial") {
+// 				filteredBookings = bookingsWithPayment.filter(
+// 					(b) => b.paymentStatus.is_partially_paid
+// 				);
+// 			}
+
+// 			console.log(filteredBookings);
+
+// 			const bookingsResponse: BookingListItem[] = filteredBookings.map(
+// 				({ booking, paymentStatus }) => {
+// 					const serviceNames = booking.services
+// 						.map((s: any) => {
+// 							return s.service_id?.name || "Unknown Service";
+// 						})
+// 						.filter((name: string) => name !== "Unknown Service")
+// 						.join(", ");
+
+// 					return {
+// 						_id: String(booking._id),
+// 						booking_reference: booking.booking_reference,
+// 						customer_name: `${booking.customer_id.first_name} ${booking.customer_id.last_name}`,
+// 						services_summary: serviceNames || "No services",
+// 						booking_date: booking.booking_date,
+// 						start_time: booking.start_time,
+// 						end_time: booking.end_time,
+// 						location: booking.location,
+// 						status: booking.status,
+// 						final_amount: booking.final_amount,
+// 						amount_paid: paymentStatus.amount_paid,
+// 						remaining_balance: paymentStatus.remaining_balance,
+// 						is_payment_complete: paymentStatus.is_payment_complete,
+// 						photographer_id: booking.photographer_id?._id,
+// 						updated_at: booking.updated_at,
+// 						photographer_name: booking.photographer_id
+// 							? `${booking.photographer_id.name}`
+// 							: null,
+// 					};
+// 				}
+// 			);
+
+// 			res.status(200).json({
+// 				status: 200,
+// 				message: "Bookings fetched successfully!",
+// 				data: bookingsResponse,
+// 			});
+// 		} catch (error) {
+// 			next(error);
+// 		}
+// 	}
+// );
 router.get(
 	"/",
 	authenticateAmiUserToken,
@@ -316,59 +495,10 @@ router.get(
 		next: NextFunction
 	) => {
 		try {
-			const {
-				status,
-				customer_id,
-				photographer_id,
-				date_from,
-				date_to,
-				search,
-				payment_status,
-				sort_by = "booking_date",
-				sort_order = "desc",
-				page = 1,
-				limit = 20,
-			} = req.query;
-
+			// Only filter out inactive bookings
 			const filter: mongoose.FilterQuery<typeof Booking> = { is_active: true };
 
-			if (status && status !== "all") {
-				filter.status = status;
-			}
-
-			if (customer_id) {
-				if (!mongoose.Types.ObjectId.isValid(customer_id as string)) {
-					throw customError(400, "Invalid customer ID format");
-				}
-				filter.customer_id = customer_id;
-			}
-
-			if (photographer_id) {
-				if (!mongoose.Types.ObjectId.isValid(photographer_id as string)) {
-					throw customError(400, "Invalid photographer ID format");
-				}
-				filter.photographer_id = photographer_id;
-			}
-
-			if (date_from || date_to) {
-				filter.booking_date = {};
-				if (date_from) filter.booking_date.$gte = new Date(date_from as string);
-				if (date_to) filter.booking_date.$lte = new Date(date_to as string);
-			}
-
-			if (search) {
-				filter.$or = [
-					{ booking_reference: { $regex: search, $options: "i" } },
-					{ location: { $regex: search, $options: "i" } },
-				];
-			}
-
-			const sortObj: Record<string, 1 | -1> = {};
-			sortObj[sort_by as string] = sort_order === "desc" ? -1 : 1;
-
-			const skip = (Number(page) - 1) * Number(limit);
-
-			// Fetch bookings WITHOUT service population
+			// Fetch all bookings
 			const bookings = await Booking.find(filter)
 				.populate<{ customer_id: PopulatedCustomer }>({
 					path: "customer_id",
@@ -379,75 +509,17 @@ router.get(
 					path: "photographer_id",
 					select: "name email specialties bio profile_image mobile_number",
 				})
-				.sort(sortObj)
-				.skip(skip)
-				.limit(Number(limit))
-				.lean();
-
-			// Collect all unique service IDs from all bookings
-			const serviceIds = new Set<string>();
-			bookings.forEach((booking: any) => {
-				booking.services?.forEach((service: any) => {
-					if (service.service_id) {
-						serviceIds.add(service.service_id.toString());
-					}
-				});
-			});
-
-			// Fetch all services in one query
-			const services = await Service.find({
-				_id: { $in: Array.from(serviceIds) },
-			})
-				.select("name category price duration_minutes")
-				.lean();
-
-			// Create a map for quick lookup
-			const serviceMap = new Map(
-				services.map((service: any) => [service._id.toString(), service])
-			);
-
-			// Manually populate services in each booking
-			const populatedBookings = bookings.map((booking: any) => {
-				return {
-					...booking,
-					services: booking.services.map((service: any) => ({
-						...service,
-						service_id: serviceMap.get(service.service_id.toString()) || null,
-					})),
-				};
-			});
-
-			const bookingsWithPayment = await Promise.all(
-				populatedBookings.map(async (booking: any) => {
-					const paymentStatus = await getBookingPaymentStatus(
-						booking._id.toString()
-					);
-					return { booking, paymentStatus };
+				.populate({
+					path: "services.service_id",
+					select: "name category price duration_minutes",
 				})
-			);
+				.lean();
 
-			let filteredBookings = bookingsWithPayment;
-
-			if (payment_status === "paid") {
-				filteredBookings = bookingsWithPayment.filter(
-					(b) => b.paymentStatus.is_payment_complete
-				);
-			} else if (payment_status === "unpaid") {
-				filteredBookings = bookingsWithPayment.filter(
-					(b) => b.paymentStatus.amount_paid === 0
-				);
-			} else if (payment_status === "partial") {
-				filteredBookings = bookingsWithPayment.filter(
-					(b) => b.paymentStatus.is_partially_paid
-				);
-			}
-
-			const bookingsResponse: BookingListItem[] = filteredBookings.map(
-				({ booking, paymentStatus }) => {
+			// Map bookings to the response format
+			const bookingsResponse: BookingListItem[] = bookings.map(
+				(booking: any) => {
 					const serviceNames = booking.services
-						.map((s: any) => {
-							return s.service_id?.name || "Unknown Service";
-						})
+						.map((s: any) => s.service_id?.name || "Unknown Service")
 						.filter((name: string) => name !== "Unknown Service")
 						.join(", ");
 
@@ -462,9 +534,9 @@ router.get(
 						location: booking.location,
 						status: booking.status,
 						final_amount: booking.final_amount,
-						amount_paid: paymentStatus.amount_paid,
-						remaining_balance: paymentStatus.remaining_balance,
-						is_payment_complete: paymentStatus.is_payment_complete,
+						amount_paid: booking.amount_paid || 0,
+						remaining_balance: booking.remaining_balance || 0,
+						is_payment_complete: booking.is_payment_complete || false,
 						photographer_id: booking.photographer_id?._id,
 						updated_at: booking.updated_at,
 						photographer_name: booking.photographer_id
@@ -476,7 +548,7 @@ router.get(
 
 			res.status(200).json({
 				status: 200,
-				message: "Bookings fetched successfully!",
+				message: `Retrieved ${bookingsResponse.length} bookings successfully`,
 				data: bookingsResponse,
 			});
 		} catch (error) {

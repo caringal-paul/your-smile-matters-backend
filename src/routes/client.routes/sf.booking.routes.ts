@@ -723,6 +723,147 @@ router.get(
 );
 
 // GET single booking by ID for authenticated customer
+// router.get(
+// 	"/:id",
+// 	authenticateCustomerToken,
+// 	async (
+// 		req: CustomerAuthenticatedRequest,
+// 		res: TypedResponse<GetBookingByIdResponse>,
+// 		next: NextFunction
+// 	) => {
+// 		try {
+// 			const { id } = req.params;
+
+// 			// Find the booking
+// 			const booking = await Booking.findById(id)
+// 				.populate("customer_id")
+// 				.populate("package_id", "-services")
+// 				.populate("photographer_id")
+// 				.populate("promo_id")
+// 				.populate("services.service_id")
+// 				.lean<LeanPopulatedBooking | null>();
+
+// 			if (!booking) {
+// 				throw customError(404, "Booking not found");
+// 			}
+
+// 			// Find all related transactions by booking_id for display
+// 			const transactions = await Transaction.find({
+// 				booking_id: id,
+// 				is_active: true,
+// 			})
+// 				.sort({ transaction_date: 1 })
+// 				.lean<TransactionModel[]>();
+
+// 			// Separate completed transactions by type
+// 			const completedTransactions = transactions.filter(
+// 				(txn) => txn.status === "Completed"
+// 			);
+
+// 			// Calculate total payments (excluding refunds)
+// 			const total_payments = completedTransactions
+// 				.filter((txn) => txn.transaction_type !== "Refund")
+// 				.reduce((total, txn) => total + (txn.amount || 0), 0);
+
+// 			// Calculate total refunds
+// 			const total_refunded = completedTransactions
+// 				.filter((txn) => txn.transaction_type === "Refund")
+// 				.reduce((total, txn) => total + (txn.amount || 0), 0);
+
+// 			// Calculate amount paid (total payments received before refunds)
+// 			const amount_paid = total_payments;
+
+// 			// Calculate final amounts
+// 			const total_price = booking.final_amount || 0; // Use final_amount (after discount)
+
+// 			const isBookingFinalized = ["Completed", "Cancelled"].includes(
+// 				booking.status
+// 			);
+
+// 			const remaining_balance = isBookingFinalized
+// 				? 0
+// 				: Math.max(total_price - amount_paid, 0);
+
+// 			// Determine payment completion status based on net revenue
+// 			const is_payment_complete = amount_paid >= total_price;
+// 			const is_partially_paid = amount_paid > 0 && amount_paid < total_price;
+
+// 			// Determine payment scenario for frontend logic
+// 			let payment_scenario:
+// 				| "fully_paid_no_refund"
+// 				| "fully_paid_with_refund"
+// 				| "partially_paid_no_refund"
+// 				| "partially_paid_with_refund"
+// 				| "refund_only"
+// 				| "no_payment";
+
+// 			if (isBookingFinalized && booking.status === "Completed") {
+// 				payment_scenario =
+// 					total_refunded > 0
+// 						? "fully_paid_with_refund"
+// 						: "fully_paid_no_refund";
+// 			} else {
+// 				if (total_payments === 0 && total_refunded === 0) {
+// 					payment_scenario = "no_payment";
+// 				} else if (total_payments === 0 && total_refunded > 0) {
+// 					payment_scenario = "refund_only";
+// 				} else if (is_payment_complete && total_refunded === 0) {
+// 					payment_scenario = "fully_paid_no_refund";
+// 				} else if (is_payment_complete && total_refunded > 0) {
+// 					payment_scenario = "fully_paid_with_refund";
+// 				} else if (is_partially_paid && total_refunded === 0) {
+// 					payment_scenario = "partially_paid_no_refund";
+// 				} else {
+// 					payment_scenario = "partially_paid_with_refund";
+// 				}
+// 			}
+
+// 			const payment_status = {
+// 				// Amounts
+// 				total_price, // Final booking amount (after discount)
+// 				total_refunded, // Total refunded amount
+// 				amount_paid, // Actual revenue (payments - refunds)
+// 				remaining_balance, // Outstanding balance
+
+// 				// Status flags
+// 				is_payment_complete: is_payment_complete,
+// 				is_partially_paid: is_partially_paid,
+// 				has_refund: total_refunded > 0,
+
+// 				// Payment scenario for UI logic
+// 				payment_scenario,
+// 				isBookingFinalized,
+
+// 				// Transaction breakdown
+// 				payment_count: completedTransactions.filter(
+// 					(txn) => txn.transaction_type !== "Refund"
+// 				).length,
+// 				refund_count: completedTransactions.filter(
+// 					(txn) => txn.transaction_type === "Refund"
+// 				).length,
+
+// 				// All transactions for detailed view
+// 				transactions,
+// 			};
+
+// 			// Merge and preserve existing fields
+// 			const result: GetBookingByIdResponse = {
+// 				...booking,
+// 				payment_status,
+// 			};
+
+// 			res.status(200).json({
+// 				status: 200,
+// 				message: "Retrieved booking with payment details successfully",
+// 				data: result,
+// 			});
+// 		} catch (error) {
+// 			next(error);
+// 		}
+// 	}
+// );
+
+// GET single booking by ID for authenticated customer
 router.get(
 	"/:id",
 	authenticateCustomerToken,
@@ -733,62 +874,81 @@ router.get(
 	) => {
 		try {
 			const { id } = req.params;
+			const customerId = req.customer?._id; // ✅ Get authenticated customer ID
 
-			// Find the booking
+			// Fetch booking
 			const booking = await Booking.findById(id)
 				.populate("customer_id")
 				.populate("package_id", "-services")
 				.populate("photographer_id")
 				.populate("promo_id")
 				.populate("services.service_id")
-				.lean<LeanPopulatedBooking | null>();
+				.lean();
 
 			if (!booking) {
 				throw customError(404, "Booking not found");
 			}
 
-			// Find all related transactions by booking_id for display
+			// ✅ FIX: Verify customer ownership
+			if (booking.customer_id._id.toString() !== customerId?.toString()) {
+				throw customError(
+					403,
+					"Access denied: This booking does not belong to you"
+				);
+			}
+
+			// Fetch all related transactions
 			const transactions = await Transaction.find({
 				booking_id: id,
 				is_active: true,
 			})
 				.sort({ transaction_date: 1 })
-				.lean<TransactionModel[]>();
+				.lean();
 
-			// Separate completed transactions by type
-			const completedTransactions = transactions.filter(
-				(txn) => txn.status === "Completed"
+			// Helper functions
+			const toNumber = (val: any) => Number(val) || 0;
+
+			// ✅ FIX: Use enum values instead of string matching
+			const paymentTxns = transactions.filter(
+				(txn) =>
+					txn.transaction_type !== "Refund" &&
+					(txn.status === "Completed" || txn.status === "Refunded")
 			);
 
-			// Calculate total payments (excluding refunds)
-			const total_payments = completedTransactions
-				.filter((txn) => txn.transaction_type !== "Refund")
-				.reduce((total, txn) => total + (txn.amount || 0), 0);
+			const refundTxns = transactions.filter(
+				(txn) => txn.transaction_type === "Refund" && txn.status === "Completed"
+			);
 
-			// Calculate total refunds
-			const total_refunded = completedTransactions
-				.filter((txn) => txn.transaction_type === "Refund")
-				.reduce((total, txn) => total + (txn.amount || 0), 0);
+			// Compute totals
+			const total_payments = paymentTxns.reduce(
+				(sum, txn) => sum + toNumber(txn.amount),
+				0
+			);
 
-			// Calculate amount paid (total payments received before refunds)
-			const amount_paid = total_payments;
+			const total_refunded = refundTxns.reduce(
+				(sum, txn) => sum + toNumber(txn.amount),
+				0
+			);
 
-			// Calculate final amounts
-			const total_price = booking.final_amount || 0; // Use final_amount (after discount)
+			// NET amount paid
+			const amount_paid = Math.max(total_payments - total_refunded, 0);
 
+			// Total price of the booking
+			const total_price = booking.final_amount || 0;
+
+			// ✅ FIX: Better finalization check
 			const isBookingFinalized = ["Completed", "Cancelled"].includes(
 				booking.status
 			);
 
-			const remaining_balance = isBookingFinalized
-				? 0
-				: Math.max(total_price - amount_paid, 0);
+			// ✅ FIX: Don't force remaining balance to 0 for cancelled bookings
+			const remaining_balance = Math.max(total_price - amount_paid, 0);
 
-			// Determine payment completion status based on net revenue
+			// Payment status flags
 			const is_payment_complete = amount_paid >= total_price;
 			const is_partially_paid = amount_paid > 0 && amount_paid < total_price;
 
-			// Determine payment scenario for frontend logic
+			// Determine payment scenario
 			let payment_scenario:
 				| "fully_paid_no_refund"
 				| "fully_paid_with_refund"
@@ -797,60 +957,41 @@ router.get(
 				| "refund_only"
 				| "no_payment";
 
-			if (isBookingFinalized && booking.status === "Completed") {
-				payment_scenario =
-					total_refunded > 0
-						? "fully_paid_with_refund"
-						: "fully_paid_no_refund";
+			if (total_payments === 0 && total_refunded === 0) {
+				payment_scenario = "no_payment";
+			} else if (total_payments === 0 && total_refunded > 0) {
+				payment_scenario = "refund_only";
+			} else if (is_payment_complete && total_refunded === 0) {
+				payment_scenario = "fully_paid_no_refund";
+			} else if (is_payment_complete && total_refunded > 0) {
+				payment_scenario = "fully_paid_with_refund";
+			} else if (is_partially_paid && total_refunded === 0) {
+				payment_scenario = "partially_paid_no_refund";
 			} else {
-				if (total_payments === 0 && total_refunded === 0) {
-					payment_scenario = "no_payment";
-				} else if (total_payments === 0 && total_refunded > 0) {
-					payment_scenario = "refund_only";
-				} else if (is_payment_complete && total_refunded === 0) {
-					payment_scenario = "fully_paid_no_refund";
-				} else if (is_payment_complete && total_refunded > 0) {
-					payment_scenario = "fully_paid_with_refund";
-				} else if (is_partially_paid && total_refunded === 0) {
-					payment_scenario = "partially_paid_no_refund";
-				} else {
-					payment_scenario = "partially_paid_with_refund";
-				}
+				payment_scenario = "partially_paid_with_refund";
 			}
 
+			// Build payment status object
 			const payment_status = {
-				// Amounts
-				total_price, // Final booking amount (after discount)
-				total_refunded, // Total refunded amount
-				amount_paid, // Actual revenue (payments - refunds)
-				remaining_balance, // Outstanding balance
-
-				// Status flags
-				is_payment_complete: is_payment_complete,
-				is_partially_paid: is_partially_paid,
+				total_price,
+				total_refunded,
+				amount_paid,
+				remaining_balance,
+				is_payment_complete,
+				is_partially_paid,
 				has_refund: total_refunded > 0,
-
-				// Payment scenario for UI logic
 				payment_scenario,
 				isBookingFinalized,
-
-				// Transaction breakdown
-				payment_count: completedTransactions.filter(
-					(txn) => txn.transaction_type !== "Refund"
-				).length,
-				refund_count: completedTransactions.filter(
-					(txn) => txn.transaction_type === "Refund"
-				).length,
-
-				// All transactions for detailed view
+				payment_count: paymentTxns.length,
+				refund_count: refundTxns.length,
 				transactions,
 			};
 
-			// Merge and preserve existing fields
-			const result: GetBookingByIdResponse = {
+			// ✅ FIX: Proper type construction
+			const result = {
 				...booking,
 				payment_status,
-			};
+			} as any;
 
 			res.status(200).json({
 				status: 200,
