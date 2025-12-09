@@ -17,6 +17,8 @@ import mongoose from "mongoose";
 import { Promo } from "../../models/Promo";
 import { Service } from "../../models/Service";
 import { Gender } from "../../types/literal.types";
+import { sendEmail } from "../../utils/emailSender";
+import { renderBookingApprovedEmail } from "../../utils/generateEmailTemplate";
 
 const router = Router();
 
@@ -749,7 +751,6 @@ router.patch(
 			const now = new Date();
 			const bookingDate = new Date(booking.booking_date);
 
-			// Create date objects for start and end times (assuming stored as Date or string)
 			const startTime = booking.start_time
 				? new Date(booking.start_time)
 				: null;
@@ -770,7 +771,6 @@ router.patch(
 				);
 			}
 
-			// If booking is today, check times
 			const isToday =
 				bookingDate.getFullYear() === now.getFullYear() &&
 				bookingDate.getMonth() === now.getMonth() &&
@@ -816,6 +816,42 @@ router.patch(
 				throw customError(500, "Failed to retrieve updated booking");
 			}
 
+			const emailHtml = renderBookingApprovedEmail({
+				firstName: populatedBooking.customer_id.first_name,
+				lastName: populatedBooking.customer_id.last_name,
+				bookingNo: populatedBooking.booking_reference.toString(),
+				bookingDate: new Date(populatedBooking.booking_date).toLocaleDateString(
+					"en-US",
+					{
+						weekday: "long",
+						year: "numeric",
+						month: "long",
+						day: "numeric",
+					}
+				),
+				startTime: startTime
+					? startTime.toLocaleTimeString("en-US", {
+							hour: "2-digit",
+							minute: "2-digit",
+					  })
+					: "N/A",
+				endTime: endTime
+					? endTime.toLocaleTimeString("en-US", {
+							hour: "2-digit",
+							minute: "2-digit",
+					  })
+					: "N/A",
+				photographerName: populatedBooking?.photographer_id?.name,
+				companyName: "Your Smile Matters",
+				supportEmail: "ysmphotography@yopmail.com",
+			});
+
+			await sendEmail({
+				to: populatedBooking.customer_id.email,
+				subject: "Your Booking Has Been Approved!",
+				html: emailHtml,
+			});
+
 			const updatedPaymentStatus = await getBookingPaymentStatus(
 				populatedBooking._id.toString()
 			);
@@ -837,7 +873,6 @@ router.patch(
 );
 
 // PATCH /api/bookings/:id/cancel
-
 router.patch(
 	"/:id/cancel",
 	authenticateAmiUserToken,
