@@ -11,6 +11,9 @@ import {
 	BookingRequestModel,
 } from "../../models/BookingRequest";
 import { Booking } from "../../models/Booking";
+import { renderRescheduleRequestAdminEmail } from "../../utils/generateEmailTemplate";
+import { formatTime12Hour } from "../../utils/formatTime";
+import { sendEmail } from "../../utils/emailSender";
 
 const router = Router();
 
@@ -327,6 +330,42 @@ router.post(
 			if (!populatedRequest) {
 				throw customError(500, "Failed to retrieve created request");
 			}
+
+			const adminEmailHtml = renderRescheduleRequestAdminEmail({
+				adminName: "Super Admin", // Or get from database
+				customerName: `${req.customer?.first_name} ${req.customer?.last_name}`,
+
+				customerEmail: `${req.customer?.email}`,
+				bookingNo: booking.booking_reference.toString(),
+				currentBookingDate: new Date(booking.booking_date).toLocaleDateString(
+					"en-US",
+					{
+						weekday: "long",
+						year: "numeric",
+						month: "long",
+						day: "numeric",
+					}
+				),
+				currentStartTime: formatTime12Hour(booking.start_time),
+				currentEndTime: formatTime12Hour(booking.end_time),
+				newBookingDate: new Date(new_booking_date).toLocaleDateString("en-US", {
+					weekday: "long",
+					year: "numeric",
+					month: "long",
+					day: "numeric",
+				}),
+				newStartTime: formatTime12Hour(new_start_time),
+				newEndTime: formatTime12Hour(new_end_time || booking.end_time),
+				rescheduleReason: reschedule_reason.trim(),
+				companyName: "Your Smile Matters",
+				supportEmail: "ysmphotography@yopmail.com",
+			});
+
+			await sendEmail({
+				to: "superadmin@yopmail.com", // Your super admin email
+				subject: "New Reschedule Request",
+				html: adminEmailHtml,
+			});
 
 			res.status(201).json({
 				status: 201,

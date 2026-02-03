@@ -245,34 +245,65 @@ async function getRefundedAmount(
 	return result.length > 0 ? result[0].totalRefunded : 0;
 }
 
+function buildDateFilter(query: any): { created_at?: any } | {} {
+	const { year, month, startDate, endDate } = query;
+
+	// If specific date range is provided
+	if (startDate || endDate) {
+		const filter: any = {};
+		if (startDate) filter.$gte = startOfDay(new Date(startDate as string));
+		if (endDate) filter.$lte = endOfDay(new Date(endDate as string));
+		return { created_at: filter };
+	}
+
+	// If year/month is provided
+	if (year || month) {
+		const currentYear = new Date().getFullYear();
+		const selectedYear = Number(year) || currentYear;
+
+		const start = startOfDay(
+			new Date(selectedYear, month ? Number(month) - 1 : 0, 1)
+		);
+
+		const end = month
+			? endOfDay(new Date(selectedYear, Number(month), 0))
+			: endOfDay(new Date(selectedYear, 11, 31));
+
+		return { created_at: { $gte: start, $lte: end } };
+	}
+
+	return {};
+}
+
 /**
- * Get refunded amounts grouped by booking ID
+ * Helper for booking_date filter (used in some endpoints)
  */
-async function getRefundsByBooking(
-	bookingIds: mongoose.Types.ObjectId[]
-): Promise<Map<string, number>> {
-	const refunds = await Transaction.aggregate([
-		{
-			$match: {
-				booking_id: { $in: bookingIds },
-				transaction_type: "Refund",
-				status: "Completed",
-			},
-		},
-		{
-			$group: {
-				_id: "$booking_id",
-				totalRefunded: { $sum: "$amount" },
-			},
-		},
-	]);
+function buildBookingDateFilter(query: any): { booking_date?: any } | {} {
+	const { year, month, startDate, endDate } = query;
 
-	const refundMap = new Map<string, number>();
-	refunds.forEach((r) => {
-		refundMap.set(r._id.toString(), r.totalRefunded);
-	});
+	if (startDate || endDate) {
+		const filter: any = {};
+		if (startDate) filter.$gte = startOfDay(new Date(startDate as string));
+		if (endDate) filter.$lte = endOfDay(new Date(endDate as string));
+		return { booking_date: filter };
+	}
 
-	return refundMap;
+	if (year || month) {
+		const currentYear = new Date().getFullYear();
+		const selectedYear = Number(year) || currentYear;
+
+		const start = startOfDay(
+			new Date(selectedYear, month ? Number(month) - 1 : 0, 1)
+		);
+
+		const end = month
+			? endOfDay(new Date(selectedYear, Number(month), 0))
+			: endOfDay(new Date(selectedYear, 11, 31));
+
+		return { booking_date: { $gte: start, $lte: end } };
+	}
+
+	return {};
 }
 
 // ============================================
@@ -286,6 +317,8 @@ async function getRefundsByBooking(
  */
 router.get("/overview", authenticateAmiUserToken, async (req, res, next) => {
 	try {
+		const dateFilter = buildDateFilter(req.query);
+
 		const today = new Date();
 		const startToday = startOfDay(today);
 		const endToday = endOfDay(today);
@@ -336,6 +369,7 @@ router.get("/overview", authenticateAmiUserToken, async (req, res, next) => {
 			{
 				$match: {
 					is_active: true,
+					...dateFilter,
 					status: { $in: ["Completed", "Confirmed", "Ongoing"] },
 				},
 			},
@@ -484,6 +518,8 @@ router.get(
 		next: NextFunction
 	) => {
 		try {
+			const dateFilter = buildDateFilter(req.query);
+
 			const { period = "month", months = 6 } = req.query;
 
 			if (
@@ -495,13 +531,14 @@ router.get(
 			}
 
 			const today = new Date();
-			const startDate = subMonths(today, Number(months));
+			// const startDate = subMonths(today, Number(months));
 
 			const trendData = await Booking.aggregate([
 				{
 					$match: {
 						is_active: true,
-						created_at: { $gte: startDate },
+						dateFilter,
+						// created_at: { $gte: startDate },
 					},
 				},
 				{
@@ -572,30 +609,13 @@ router.get(
 		next: NextFunction
 	) => {
 		try {
-			const { year, month } = req.query;
+			const dateFilter = buildDateFilter(req.query);
 
-			// base filter
-			const matchStage: any = { is_active: true };
+			const matchStage: any = {
+				is_active: true,
+				...dateFilter,
+			};
 
-			// optional date filtering
-			if (year || month) {
-				const currentYear = new Date().getFullYear();
-				const selectedYear = Number(year) || currentYear;
-
-				const startDate = new Date(
-					selectedYear,
-					month ? Number(month) - 1 : 0,
-					1
-				);
-
-				const endDate = month
-					? new Date(selectedYear, Number(month), 1)
-					: new Date(selectedYear + 1, 0, 1);
-
-				matchStage.created_at = { $gte: startDate, $lt: endDate };
-			}
-
-			// aggregation
 			const distribution = await Booking.aggregate([
 				{ $match: matchStage },
 				{
@@ -623,13 +643,10 @@ router.get(
 				})
 			);
 
-			// total count for percentage calculation
 			const total = enrichedDistribution.reduce(
 				(sum, item) => sum + item.count,
 				0
 			);
-
-			// add percentage
 			const withPercentage: StatusDistribution[] = enrichedDistribution.map(
 				(item) => ({
 					...item,
@@ -666,9 +683,15 @@ router.get(
 	) => {
 		try {
 			const { limit = 10 } = req.query;
+			const dateFilter = buildDateFilter(req.query);
+
+			const matchStage: any = {
+				is_active: true,
+				...dateFilter,
+			};
 
 			const topServices = await Booking.aggregate([
-				{ $match: { is_active: true } },
+				{ $match: matchStage },
 				{ $unwind: "$services" },
 				{
 					$group: {
@@ -728,13 +751,16 @@ router.get(
 		next: NextFunction
 	) => {
 		try {
+			const dateFilter = buildDateFilter(req.query);
+
+			const matchStage: any = {
+				is_active: true,
+				photographer_id: { $ne: null },
+				...dateFilter,
+			};
+
 			const performance = await Booking.aggregate([
-				{
-					$match: {
-						is_active: true,
-						photographer_id: { $ne: null },
-					},
-				},
+				{ $match: matchStage },
 				{
 					$group: {
 						_id: "$photographer_id",
@@ -781,12 +807,13 @@ router.get(
 				{ $sort: { totalRevenue: -1 } },
 			]);
 
-			// Get refunds for each photographer
 			const enrichedPerformance = await Promise.all(
 				performance.map(async (photographer) => {
 					const refundedAmount = await getRefundedAmount(
 						photographer.bookingIds
 					);
+					const netRevenue = photographer.totalRevenue - refundedAmount;
+
 					return {
 						_id: photographer._id,
 						photographerName: photographer.photographerName,
@@ -796,12 +823,14 @@ router.get(
 						completionRate: photographer.completionRate,
 						totalRevenue: photographer.totalRevenue,
 						refundedAmount,
-						netRevenue: photographer.totalRevenue - refundedAmount,
+						netRevenue,
 						averageRating: photographer.averageRating,
 						totalRatings: photographer.totalRatings,
 					};
 				})
 			);
+
+			enrichedPerformance.sort((a, b) => b.netRevenue - a.netRevenue);
 
 			res.status(200).json({
 				status: 200,
@@ -828,9 +857,15 @@ router.get(
 		next: NextFunction
 	) => {
 		try {
-			// Top customers by spending
+			const dateFilter = buildDateFilter(req.query);
+
+			const matchStage: any = {
+				is_active: true,
+				...dateFilter,
+			};
+
 			const topCustomersData = await Booking.aggregate([
-				{ $match: { is_active: true } },
+				{ $match: matchStage },
 				{
 					$group: {
 						_id: "$customer_id",
@@ -868,11 +903,8 @@ router.get(
 						bookingIds: 1,
 					},
 				},
-				{ $sort: { totalSpent: -1 } },
-				{ $limit: 20 },
 			]);
 
-			// Get refunds for each customer
 			const topCustomers = await Promise.all(
 				topCustomersData.map(async (customer) => {
 					const refundedAmount = await getRefundedAmount(customer.bookingIds);
@@ -891,9 +923,10 @@ router.get(
 				})
 			);
 
-			// Customer segmentation
+			topCustomers.sort((a, b) => (b.netSpent ?? 0) - (a.netSpent ?? 0));
+
 			const segmentData = await Booking.aggregate([
-				{ $match: { is_active: true } },
+				{ $match: matchStage },
 				{
 					$group: {
 						_id: "$customer_id",
@@ -916,7 +949,6 @@ router.get(
 				},
 			]);
 
-			// Get refunds for each segment
 			const customerSegments = await Promise.all(
 				segmentData.map(async (segment) => {
 					const flatBookingIds = segment.allBookingIds.flat();
@@ -959,13 +991,16 @@ router.get(
 		next: NextFunction
 	) => {
 		try {
+			const dateFilter = buildDateFilter(req.query);
+
+			const packageMatchStage: any = {
+				is_active: true,
+				package_id: { $ne: null },
+				...dateFilter,
+			};
+
 			const packageStatsData = await Booking.aggregate([
-				{
-					$match: {
-						is_active: true,
-						package_id: { $ne: null },
-					},
-				},
+				{ $match: packageMatchStage },
 				{
 					$group: {
 						_id: "$package_id",
@@ -997,7 +1032,6 @@ router.get(
 				{ $sort: { totalRevenue: -1 } },
 			]);
 
-			// Get refunds for each package
 			const packageStats = await Promise.all(
 				packageStatsData.map(async (pkg) => {
 					const refundedAmount = await getRefundedAmount(pkg.bookingIds);
@@ -1014,9 +1048,13 @@ router.get(
 				})
 			);
 
-			// Custom vs Package bookings
+			const bookingTypeMatchStage: any = {
+				is_active: true,
+				...dateFilter,
+			};
+
 			const bookingTypesData = await Booking.aggregate([
-				{ $match: { is_active: true } },
+				{ $match: bookingTypeMatchStage },
 				{
 					$group: {
 						_id: {
@@ -1029,7 +1067,6 @@ router.get(
 				},
 			]);
 
-			// Get refunds for each booking type
 			const bookingTypes = await Promise.all(
 				bookingTypesData.map(async (type) => {
 					const refundedAmount = await getRefundedAmount(type.bookingIds);
@@ -1073,15 +1110,18 @@ router.get(
 	) => {
 		try {
 			const { months = 3 } = req.query;
-			const startDate = subMonths(new Date(), Number(months));
+			const bookingDateFilter = buildBookingDateFilter(req.query);
+
+			// If no custom date filter, use months parameter
+			const matchStage: any = {
+				is_active: true,
+				...(Object.keys(bookingDateFilter).length > 0
+					? bookingDateFilter
+					: { booking_date: { $gte: subMonths(new Date(), Number(months)) } }),
+			};
 
 			const heatmapData = await Booking.aggregate([
-				{
-					$match: {
-						is_active: true,
-						booking_date: { $gte: startDate },
-					},
-				},
+				{ $match: matchStage },
 				{
 					$group: {
 						_id: {
@@ -1097,7 +1137,6 @@ router.get(
 				{ $sort: { "_id.date": 1 } },
 			]);
 
-			// Get refunds for each date
 			const enrichedHeatmap = await Promise.all(
 				heatmapData.map(async (day) => {
 					const refundedAmount = await getRefundedAmount(day.bookingIds);
@@ -1136,8 +1175,15 @@ router.get(
 		next: NextFunction
 	) => {
 		try {
+			const dateFilter = buildDateFilter(req.query);
+
+			const matchStage: any = {
+				is_active: true,
+				...dateFilter,
+			};
+
 			const peakHours = await Booking.aggregate([
-				{ $match: { is_active: true } },
+				{ $match: matchStage },
 				{
 					$project: {
 						hour: {
@@ -1162,7 +1208,6 @@ router.get(
 				{ $sort: { "_id.dayOfWeek": 1, "_id.hour": 1 } },
 			]);
 
-			// Get refunds for each hour/day combination
 			const enrichedPeakHours = await Promise.all(
 				peakHours.map(async (slot) => {
 					const refundedAmount = await getRefundedAmount(slot.bookingIds);
@@ -1201,12 +1246,15 @@ router.get(
 		next: NextFunction
 	) => {
 		try {
+			const dateFilter = buildDateFilter(req.query);
+
+			const matchStage: any = {
+				is_active: true,
+				...dateFilter,
+			};
+
 			const cancellationStats = await Booking.aggregate([
-				{
-					$match: {
-						is_active: true,
-					},
-				},
+				{ $match: matchStage },
 				{
 					$group: {
 						_id: "$status",
@@ -1220,6 +1268,7 @@ router.get(
 					$match: {
 						status: "Cancelled",
 						cancelled_reason: { $ne: null },
+						...dateFilter,
 					},
 				},
 				{
@@ -1258,7 +1307,6 @@ router.get(
 		}
 	}
 );
-
 /**
  * @route   GET /api/analytics/promo-effectiveness
  * @desc    Get promo code effectiveness and ROI
@@ -1273,13 +1321,16 @@ router.get(
 		next: NextFunction
 	) => {
 		try {
+			const dateFilter = buildDateFilter(req.query);
+
+			const matchStage: any = {
+				is_active: true,
+				promo_id: { $ne: null },
+				...dateFilter,
+			};
+
 			const promoStatsData = await Booking.aggregate([
-				{
-					$match: {
-						is_active: true,
-						promo_id: { $ne: null },
-					},
-				},
+				{ $match: matchStage },
 				{
 					$group: {
 						_id: "$promo_id",
@@ -1313,7 +1364,6 @@ router.get(
 				{ $sort: { totalUsage: -1 } },
 			]);
 
-			// Get refunds for each promo
 			const promoStats = await Promise.all(
 				promoStatsData.map(async (promo) => {
 					const refundedAmount = await getRefundedAmount(promo.bookingIds);
@@ -1358,11 +1408,14 @@ router.get(
 		next: NextFunction
 	) => {
 		try {
+			const { historicalMonths = 6 } = req.query;
+			const startDate = subMonths(new Date(), Number(historicalMonths));
+
 			const last6MonthsData = await Booking.aggregate([
 				{
 					$match: {
 						is_active: true,
-						created_at: { $gte: subMonths(new Date(), 6) },
+						created_at: { $gte: startDate },
 						status: { $in: ["Completed", "Confirmed"] },
 					},
 				},
@@ -1380,7 +1433,6 @@ router.get(
 				{ $sort: { "_id.year": 1, "_id.month": 1 } },
 			]);
 
-			// Get refunds for each month
 			const last6Months = await Promise.all(
 				last6MonthsData.map(async (month) => {
 					const refundedAmount = await getRefundedAmount(month.bookingIds);
@@ -1394,7 +1446,6 @@ router.get(
 				})
 			);
 
-			// Simple average for next month forecast (using net revenue)
 			const avgNetRevenue =
 				last6Months.length > 0
 					? last6Months.reduce((sum, m) => sum + m.netRevenue, 0) /

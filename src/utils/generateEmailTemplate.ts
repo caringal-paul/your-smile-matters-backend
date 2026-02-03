@@ -586,3 +586,523 @@ export const renderNewAccountEmail = (opts: {
       </body>
     </html>`;
 };
+
+// * NEW
+export const renderBookingConfirmedAdminEmail = (opts: {
+	customerName: string;
+	customerEmail: string;
+	bookingNo: string;
+	bookingDate: string;
+	startTime: string;
+	endTime: string;
+	photographerName?: string;
+	confirmedBy: string; // Actual user/admin who confirmed
+	companyName: string;
+	supportEmail: string;
+}) => {
+	return `
+  <!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8"/>
+      <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+      <title>Booking Confirmed - ${opts.companyName}</title>
+    </head>
+    <body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#0b1220;">
+      <center style="width:100%;background:#f6f7fb;">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:28px 16px;text-align:center;">
+              <table width="600" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="background:#fff;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+                <tr>
+                  <td align="center" style="padding:24px 36px;border-bottom:1px solid #eee;text-align:center;">
+                    <h2 style="margin:0;font-size:20px;color:#846e62;font-family:Arial,Helvetica,sans-serif;">
+                      Booking Confirmed Notification
+                    </h2>
+                    <p style="margin:6px 0 0;font-size:14px;color:#51606b;font-family:Arial,Helvetica,sans-serif;">
+                      A booking has been confirmed in the system.
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="left" style="padding:24px 36px;">
+                    <p style="margin:0 0 12px;font-size:15px;color:#846e62;font-family:Arial,Helvetica,sans-serif;">
+                      <strong>Customer:</strong> ${opts.customerName} (${
+		opts.customerEmail
+	})
+                    </p>
+                    <table cellpadding="10" cellspacing="0" align="center" style="margin:12px auto 18px;border:1px solid #dcfce7;background:#f3f4f6;border-radius:8px;width:100%;">
+                      <tr>
+                        <td style="font-size:13px;color:#333;font-family:Arial,Helvetica,sans-serif;text-align:left;">
+                          <p style="margin:0;">
+                            <strong>Booking Number:</strong> 
+                            <span style="font-family:monospace;background:#6f5a4d;padding:4px 8px;border-radius:4px;color:#fff;">
+                              ${opts.bookingNo}
+                            </span>
+                          </p>
+                          <p style="margin:6px 0 0;">
+                            <strong>Date:</strong> ${opts.bookingDate}
+                          </p>
+                          <p style="margin:6px 0 0;">
+                            <strong>Time:</strong> ${opts.startTime} - ${
+		opts.endTime
+	}
+                          </p>
+                          <p style="margin:6px 0 0;">
+                            <strong>Photographer:</strong> ${
+															opts.photographerName ?? "To Be Assigned"
+														}
+                          </p>
+                          <p style="margin:6px 0 0;">
+                            <strong>Confirmed By:</strong> ${opts.confirmedBy}
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="margin:0;font-size:14px;color:#475569;font-family:Arial,Helvetica,sans-serif;">
+                      Please review the booking in the admin panel if needed.
+                    </p>
+                    <hr style="border:none;border-top:1px solid #eee;margin:20px auto;width:80%;" />
+                    <p style="margin:0;font-size:13px;color:#64748b;font-family:Arial,Helvetica,sans-serif;">
+                      Contact support: 
+                      <a href="mailto:${
+												opts.supportEmail
+											}" style="color:#0b61d1;text-decoration:none;">
+                        ${opts.supportEmail}
+                      </a>
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding:18px 36px;background:#fbfdff;text-align:center;font-size:12px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;">
+                    © ${new Date().getFullYear()} ${
+		opts.companyName
+	}. All rights reserved.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </center>
+    </body>
+  </html>
+  `;
+};
+
+/**
+ * Email template when customer requests reschedule (sent to Super Admin)
+ */
+export const renderRescheduleRequestAdminEmail = (opts: {
+	adminName: string;
+	customerName: string;
+	customerEmail: string;
+	bookingNo: string;
+	currentBookingDate: string;
+	currentStartTime: string;
+	currentEndTime: string;
+	newBookingDate: string;
+	newStartTime: string;
+	newEndTime: string;
+	rescheduleReason: string;
+	companyName: string;
+	supportEmail: string;
+}) => {
+	return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+        <title>New Reschedule Request - ${opts.companyName}</title>
+      </head>
+      <body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#0b1220;">
+        <center style="width:100%;background:#f6f7fb;">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td align="center" style="padding:28px 16px;text-align:center;">
+                <table width="600" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="background:#fff;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+                  <tr>
+                    <td align="center" style="padding:24px 36px;border-bottom:1px solid #eee;text-align:center;">
+                      <h2 style="margin:0;font-size:20px;color:#d97706;font-family:Arial,Helvetica,sans-serif;">
+                        🔔 New Reschedule Request
+                      </h2>
+                      <p style="margin:6px 0 0;font-size:14px;color:#51606b;font-family:Arial,Helvetica,sans-serif;">
+                        Action Required - Review Request
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding:24px 36px;text-align:center;">
+                      <p style="margin:0 0 12px;font-size:15px;color:#846e62;font-family:Arial,Helvetica,sans-serif;">
+                        Hi ${opts.adminName},
+                      </p>
+                      <p style="margin:0 0 16px;font-size:14px;color:#475569;font-family:Arial,Helvetica,sans-serif;">
+                        A customer has submitted a reschedule request that requires your review.
+                      </p>
+                      
+                      <table cellpadding="12" cellspacing="0" align="center" style="margin:12px auto 18px;border:1px solid #fde68a;background:#fef3c7;border-radius:8px;">
+                        <tr>
+                          <td style="font-size:13px;color:#92400e;font-family:Arial,Helvetica,sans-serif;text-align:left;">
+                            <p style="margin:0;font-size:14px;font-weight:bold;color:#d97706;">
+                              Customer Information
+                            </p>
+                            <p style="margin:8px 0 0;color:#333;">
+                              <strong>Name:</strong> ${opts.customerName}
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              <strong>Email:</strong> ${opts.customerEmail}
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              <strong>Booking #:</strong> 
+                              <span style="font-family:monospace;background:#d97706;padding:4px 8px;border-radius:4px;color:#fff;">
+                                ${opts.bookingNo}
+                              </span>
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <table cellpadding="12" cellspacing="0" align="center" style="margin:12px auto 18px;border:1px solid #e5e7eb;background:#f9fafb;border-radius:8px;">
+                        <tr>
+                          <td style="font-size:13px;color:#374151;font-family:Arial,Helvetica,sans-serif;text-align:left;">
+                            <p style="margin:0;font-size:14px;font-weight:bold;color:#6b7280;">
+                              Current Schedule
+                            </p>
+                            <p style="margin:8px 0 0;color:#333;">
+                              <strong>Date:</strong> ${opts.currentBookingDate}
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              <strong>Time:</strong> ${
+																opts.currentStartTime
+															} - ${opts.currentEndTime}
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <table cellpadding="12" cellspacing="0" align="center" style="margin:12px auto 18px;border:1px solid #dcfce7;background:#d1fae5;border-radius:8px;">
+                        <tr>
+                          <td style="font-size:13px;color:#065f46;font-family:Arial,Helvetica,sans-serif;text-align:left;">
+                            <p style="margin:0;font-size:14px;font-weight:bold;color:#059669;">
+                              Requested New Schedule
+                            </p>
+                            <p style="margin:8px 0 0;color:#333;">
+                              <strong>Date:</strong> ${opts.newBookingDate}
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              <strong>Time:</strong> ${opts.newStartTime} - ${
+		opts.newEndTime
+	}
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <table cellpadding="12" cellspacing="0" align="center" style="margin:12px auto 18px;border:1px solid #dbeafe;background:#eff6ff;border-radius:8px;">
+                        <tr>
+                          <td style="font-size:13px;color:#1e3a8a;font-family:Arial,Helvetica,sans-serif;text-align:left;">
+                            <p style="margin:0;font-size:14px;font-weight:bold;color:#2563eb;">
+                              Reason for Reschedule
+                            </p>
+                            <p style="margin:8px 0 0;color:#333;font-style:italic;">
+                              "${opts.rescheduleReason}"
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <hr style="border:none;border-top:1px solid #eee;margin:20px auto;width:80%;" />
+                      <p style="margin:0;font-size:13px;color:#64748b;font-family:Arial,Helvetica,sans-serif;">
+                        Need help? Contact us at
+                        <a href="mailto:${
+													opts.supportEmail
+												}" style="color:#0b61d1;text-decoration:none;">
+                          ${opts.supportEmail}
+                        </a>
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding:18px 36px;background:#fbfdff;text-align:center;font-size:12px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;">
+                      © ${new Date().getFullYear()} ${
+		opts.companyName
+	}. All rights reserved.
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </center>
+      </body>
+    </html>`;
+};
+
+/**
+ * Email template when reschedule is approved (sent to Customer)
+ */
+export const renderRescheduleApprovedCustomerEmail = (opts: {
+	firstName: string;
+	lastName: string;
+	bookingNo: string;
+	newBookingDate: string;
+	newStartTime: string;
+	newEndTime: string;
+	photographerName?: string;
+	adminNotes?: string;
+	companyName: string;
+	supportEmail: string;
+}) => {
+	return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+        <title>Reschedule Request Approved - ${opts.companyName}</title>
+      </head>
+      <body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#0b1220;">
+        <center style="width:100%;background:#f6f7fb;">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td align="center" style="padding:28px 16px;text-align:center;">
+                <table width="600" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="background:#fff;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+                  <tr>
+                    <td align="center" style="padding:24px 36px;border-bottom:1px solid #eee;text-align:center;">
+                      <h2 style="margin:0;font-size:20px;color:#10b981;font-family:Arial,Helvetica,sans-serif;">
+                        ✓ Reschedule Request Approved!
+                      </h2>
+                      <p style="margin:6px 0 0;font-size:14px;color:#51606b;font-family:Arial,Helvetica,sans-serif;">
+                        Your booking has been successfully rescheduled
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding:24px 36px;text-align:center;">
+                      <p style="margin:0 0 12px;font-size:15px;color:#846e62;font-family:Arial,Helvetica,sans-serif;">
+                        Hi ${opts.firstName} ${opts.lastName},
+                      </p>
+                      <p style="margin:0 0 16px;font-size:14px;color:#475569;font-family:Arial,Helvetica,sans-serif;">
+                        Great news! Your reschedule request has been approved.<br/>
+                        Your booking has been updated to the new date and time.
+                      </p>
+                      <table cellpadding="10" cellspacing="0" align="center" style="margin:12px auto 18px;border:1px solid #dcfce7;background:#d1fae5;border-radius:8px;">
+                        <tr>
+                          <td style="font-size:13px;color:#065f46;font-family:Arial,Helvetica,sans-serif;text-align:left;">
+                            <p style="margin:0;">
+                              <strong>Booking Number:</strong> 
+                              <span style="font-family:monospace;background:#059669;padding:4px 8px;border-radius:4px;color:#fff;">
+                                ${opts.bookingNo}
+                              </span>
+                            </p>
+                            <p style="margin:10px 0 0;color:#333;">
+                              <strong>New Date:</strong> ${opts.newBookingDate}
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              <strong>New Time:</strong> ${
+																opts.newStartTime
+															} - ${opts.newEndTime}
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              <strong>Photographer:</strong> ${
+																opts.photographerName ?? "To Be Assigned"
+															}
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+                      ${
+												opts.adminNotes
+													? `
+                      <table cellpadding="10" cellspacing="0" align="center" style="margin:12px auto 18px;border:1px solid #dbeafe;background:#eff6ff;border-radius:8px;">
+                        <tr>
+                          <td style="font-size:13px;color:#1e3a8a;font-family:Arial,Helvetica,sans-serif;text-align:left;">
+                            <p style="margin:0;font-weight:bold;color:#2563eb;">
+                              Notes from Admin:
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              ${opts.adminNotes}
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+                      `
+													: ""
+											}
+                      <p style="margin:0 0 18px;font-size:14px;color:#475569;font-family:Arial,Helvetica,sans-serif;">
+                        📸 Please arrive 10 minutes before your scheduled time.<br/>
+                        We look forward to seeing you at your new appointment!
+                      </p>
+                      <hr style="border:none;border-top:1px solid #eee;margin:20px auto;width:80%;" />
+                      <p style="margin:0;font-size:13px;color:#64748b;font-family:Arial,Helvetica,sans-serif;">
+                        Need help? Contact us at
+                        <a href="mailto:${
+													opts.supportEmail
+												}" style="color:#0b61d1;text-decoration:none;">
+                          ${opts.supportEmail}
+                        </a>
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding:18px 36px;background:#fbfdff;text-align:center;font-size:12px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;">
+                      © ${new Date().getFullYear()} ${
+		opts.companyName
+	}. All rights reserved.
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </center>
+      </body>
+    </html>`;
+};
+
+/**
+ * Email template when reschedule is approved (sent to other Super Admins)
+ */
+export const renderRescheduleApprovedAdminEmail = (opts: {
+	adminName: string;
+	approvedBy: string;
+	customerName: string;
+	customerEmail: string;
+	bookingNo: string;
+	newBookingDate: string;
+	newStartTime: string;
+	newEndTime: string;
+	photographerName?: string;
+	adminNotes?: string;
+	companyName: string;
+	supportEmail: string;
+}) => {
+	return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+        <title>Reschedule Request Approved - ${opts.companyName}</title>
+      </head>
+      <body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#0b1220;">
+        <center style="width:100%;background:#f6f7fb;">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td align="center" style="padding:28px 16px;text-align:center;">
+                <table width="600" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="background:#fff;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+                  <tr>
+                    <td align="center" style="padding:24px 36px;border-bottom:1px solid #eee;text-align:center;">
+                      <h2 style="margin:0;font-size:20px;color:#10b981;font-family:Arial,Helvetica,sans-serif;">
+                        ✓ Reschedule Request Approved
+                      </h2>
+                      <p style="margin:6px 0 0;font-size:14px;color:#51606b;font-family:Arial,Helvetica,sans-serif;">
+                        A booking has been successfully rescheduled
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding:24px 36px;text-align:center;">
+                      <p style="margin:0 0 12px;font-size:15px;color:#846e62;font-family:Arial,Helvetica,sans-serif;">
+                        Hi ${opts.adminName},
+                      </p>
+                      <p style="margin:0 0 16px;font-size:14px;color:#475569;font-family:Arial,Helvetica,sans-serif;">
+                        <strong>${
+													opts.approvedBy
+												}</strong> has approved a reschedule request.
+                      </p>
+                      
+                      <table cellpadding="12" cellspacing="0" align="center" style="margin:12px auto 18px;border:1px solid #e5e7eb;background:#f9fafb;border-radius:8px;">
+                        <tr>
+                          <td style="font-size:13px;color:#374151;font-family:Arial,Helvetica,sans-serif;text-align:left;">
+                            <p style="margin:0;font-size:14px;font-weight:bold;color:#6b7280;">
+                              Customer Information
+                            </p>
+                            <p style="margin:8px 0 0;color:#333;">
+                              <strong>Name:</strong> ${opts.customerName}
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              <strong>Email:</strong> ${opts.customerEmail}
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              <strong>Booking #:</strong> 
+                              <span style="font-family:monospace;background:#6b7280;padding:4px 8px;border-radius:4px;color:#fff;">
+                                ${opts.bookingNo}
+                              </span>
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <table cellpadding="12" cellspacing="0" align="center" style="margin:12px auto 18px;border:1px solid #dcfce7;background:#d1fae5;border-radius:8px;">
+                        <tr>
+                          <td style="font-size:13px;color:#065f46;font-family:Arial,Helvetica,sans-serif;text-align:left;">
+                            <p style="margin:0;font-size:14px;font-weight:bold;color:#059669;">
+                              New Schedule
+                            </p>
+                            <p style="margin:8px 0 0;color:#333;">
+                              <strong>Date:</strong> ${opts.newBookingDate}
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              <strong>Time:</strong> ${opts.newStartTime} - ${
+		opts.newEndTime
+	}
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              <strong>Photographer:</strong> ${
+																opts.photographerName ?? "To Be Assigned"
+															}
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              <strong>Approved By:</strong> ${opts.approvedBy}
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+
+                      ${
+												opts.adminNotes
+													? `
+                      <table cellpadding="12" cellspacing="0" align="center" style="margin:12px auto 18px;border:1px solid #dbeafe;background:#eff6ff;border-radius:8px;">
+                        <tr>
+                          <td style="font-size:13px;color:#1e3a8a;font-family:Arial,Helvetica,sans-serif;text-align:left;">
+                            <p style="margin:0;font-weight:bold;color:#2563eb;">
+                              Admin Notes:
+                            </p>
+                            <p style="margin:6px 0 0;color:#333;">
+                              ${opts.adminNotes}
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+                      `
+													: ""
+											}
+                      
+                      <hr style="border:none;border-top:1px solid #eee;margin:20px auto;width:80%;" />
+                      <p style="margin:0;font-size:13px;color:#64748b;font-family:Arial,Helvetica,sans-serif;">
+                        Need help? Contact us at
+                        <a href="mailto:${
+													opts.supportEmail
+												}" style="color:#0b61d1;text-decoration:none;">
+                          ${opts.supportEmail}
+                        </a>
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding:18px 36px;background:#fbfdff;text-align:center;font-size:12px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;">
+                      © ${new Date().getFullYear()} ${
+		opts.companyName
+	}. All rights reserved.
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </center>
+      </body>
+    </html>`;
+};

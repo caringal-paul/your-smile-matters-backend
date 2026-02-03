@@ -11,6 +11,13 @@ import {
 	AuthenticatedRequest,
 } from "../../middleware/authAmiMiddleware";
 import { TypedResponse } from "../../types/base.types";
+import {
+	renderRescheduleApprovedAdminEmail,
+	renderRescheduleApprovedCustomerEmail,
+	renderRescheduleRequestAdminEmail,
+} from "../../utils/generateEmailTemplate";
+import { sendEmail } from "../../utils/emailSender";
+import { formatTime12Hour } from "../../utils/formatTime";
 
 // ============================================================================
 // POPULATED TYPES
@@ -158,8 +165,6 @@ async function approveRescheduleRequest(
 	if (!request.new_booking_date || !request.new_start_time) {
 		throw customError(400, "Missing new schedule details in request");
 	}
-
-	console.log("UMABOT AKO DITO");
 
 	// Apply reschedule
 	booking.booking_date = new Date(request.new_booking_date);
@@ -368,6 +373,60 @@ router.patch(
 			if (!populatedRequest) {
 				throw customError(404, "Booking request not found");
 			}
+
+			const customerEmailHtml = renderRescheduleApprovedCustomerEmail({
+				firstName: populatedRequest.customer_id.first_name,
+				lastName: populatedRequest.customer_id.last_name,
+				bookingNo: populatedRequest.booking_id.booking_reference.toString(),
+				newBookingDate: new Date(
+					populatedRequest.booking_id.booking_date
+				).toLocaleDateString("en-US", {
+					weekday: "long",
+					year: "numeric",
+					month: "long",
+					day: "numeric",
+				}),
+				newStartTime: formatTime12Hour(populatedRequest.booking_id.start_time),
+				newEndTime: formatTime12Hour(populatedRequest.booking_id.end_time),
+				photographerName: populatedRequest.new_photographer_id?.name,
+				adminNotes: req.body.admin_notes,
+				companyName: "Your Smile Matters",
+				supportEmail: "ysmphotography@yopmail.com",
+			});
+
+			await sendEmail({
+				to: populatedRequest.customer_id.email,
+				subject: "Reschedule Request Approved",
+				html: customerEmailHtml,
+			});
+
+			const adminNotificationHtml = renderRescheduleApprovedAdminEmail({
+				adminName: "Super Admin",
+				approvedBy: `${populatedRequest.reviewed_by?.first_name} ${populatedRequest.reviewed_by?.last_name}`,
+				customerName: `${populatedRequest.customer_id.first_name} ${populatedRequest.customer_id.last_name}`,
+				customerEmail: populatedRequest.customer_id.email,
+				bookingNo: populatedRequest.booking_id.booking_reference,
+				newBookingDate: new Date(
+					populatedRequest.booking_id.booking_date
+				).toLocaleDateString("en-US", {
+					weekday: "long",
+					year: "numeric",
+					month: "long",
+					day: "numeric",
+				}),
+				newStartTime: formatTime12Hour(populatedRequest.booking_id.start_time),
+				newEndTime: formatTime12Hour(populatedRequest.booking_id.end_time),
+				photographerName: populatedRequest.new_photographer_id?.name,
+				adminNotes: req.body.admin_notes,
+				companyName: "Your Smile Matters",
+				supportEmail: "ysmphotography@yopmail.com",
+			});
+
+			await sendEmail({
+				to: "superadmin@yopmail.com", // Your super admin email
+				subject: "Reschedule Request Approved",
+				html: adminNotificationHtml,
+			});
 
 			res.status(200).json({
 				status: 200,

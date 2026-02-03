@@ -8,6 +8,8 @@ import { customError } from "./errorHandler";
 export interface AuthenticatedCustomer {
 	_id: string;
 	email: string;
+	first_name?: string;
+	last_name?: string;
 }
 
 export interface CustomerAuthenticatedRequest<
@@ -74,6 +76,9 @@ export const authenticateCustomerToken = async (
 		// Attach customer info to request
 		req.customer = {
 			_id: customer._id.toString(),
+			first_name: customer.first_name,
+			last_name: customer.last_name,
+
 			email: customer.email,
 		};
 

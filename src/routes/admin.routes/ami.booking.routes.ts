@@ -18,7 +18,11 @@ import { Promo } from "../../models/Promo";
 import { Service } from "../../models/Service";
 import { Gender } from "../../types/literal.types";
 import { sendEmail } from "../../utils/emailSender";
-import { renderBookingApprovedEmail } from "../../utils/generateEmailTemplate";
+import {
+	renderBookingApprovedEmail,
+	renderBookingConfirmedAdminEmail,
+} from "../../utils/generateEmailTemplate";
+import { formatTime12Hour } from "../../utils/formatTime";
 
 const router = Router();
 
@@ -727,6 +731,8 @@ router.patch(
 			const { id } = req.params;
 			const userId = req.user?._id;
 
+			const confirmedBy = `${req.user?.role_and_permissions?.name} ${req.user?.first_name} ${req.user?.last_name}`;
+
 			if (!userId) {
 				throw customError(400, "No user id found. Please login again.");
 			}
@@ -816,6 +822,8 @@ router.patch(
 				throw customError(500, "Failed to retrieve updated booking");
 			}
 
+			console.log("CTRL", formatTime12Hour(booking.start_time));
+
 			const emailHtml = renderBookingApprovedEmail({
 				firstName: populatedBooking.customer_id.first_name,
 				lastName: populatedBooking.customer_id.last_name,
@@ -829,18 +837,8 @@ router.patch(
 						day: "numeric",
 					}
 				),
-				startTime: startTime
-					? startTime.toLocaleTimeString("en-US", {
-							hour: "2-digit",
-							minute: "2-digit",
-					  })
-					: "N/A",
-				endTime: endTime
-					? endTime.toLocaleTimeString("en-US", {
-							hour: "2-digit",
-							minute: "2-digit",
-					  })
-					: "N/A",
+				startTime: formatTime12Hour(booking.start_time),
+				endTime: formatTime12Hour(booking.end_time),
 				photographerName: populatedBooking?.photographer_id?.name,
 				companyName: "Your Smile Matters",
 				supportEmail: "ysmphotography@yopmail.com",
@@ -850,6 +848,32 @@ router.patch(
 				to: populatedBooking.customer_id.email,
 				subject: "Your Booking Has Been Approved!",
 				html: emailHtml,
+			});
+			const adminEmailHtml = renderBookingConfirmedAdminEmail({
+				customerName: `${populatedBooking.customer_id.first_name} ${populatedBooking.customer_id.last_name}`,
+				customerEmail: populatedBooking.customer_id.email,
+				bookingNo: populatedBooking.booking_reference.toString(),
+				bookingDate: new Date(populatedBooking.booking_date).toLocaleDateString(
+					"en-US",
+					{
+						weekday: "long",
+						year: "numeric",
+						month: "long",
+						day: "numeric",
+					}
+				),
+				startTime: formatTime12Hour(booking.start_time),
+				endTime: formatTime12Hour(booking.end_time),
+				photographerName: populatedBooking?.photographer_id?.name,
+				confirmedBy: confirmedBy,
+				companyName: "Your Smile Matters",
+				supportEmail: "ysmphotography@yopmail.com",
+			});
+
+			await sendEmail({
+				to: "superadmin@yopmail.com", // Super admin email
+				subject: `Booking Confirmed: ${populatedBooking.booking_reference}`,
+				html: adminEmailHtml,
 			});
 
 			const updatedPaymentStatus = await getBookingPaymentStatus(
