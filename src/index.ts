@@ -24,6 +24,7 @@ import adminAnalyticsRoutes from "./routes/admin.routes/ami.analytics.routes";
 import adminRatingRoutes from "./routes/admin.routes/ami.rating.routes";
 import adminBookingRequestRoutes from "./routes/admin.routes/ami.booking-request.routes";
 import adminTransactionRequestRoutes from "./routes/admin.routes/ami.transaction-request.routes";
+import adminNotificationRoutes from "./routes/admin.routes/ami.notification.routes";
 
 // SHARED ROUTES
 import uploadImageRoutes from "./routes/shared.routes/upload-image.routes";
@@ -74,6 +75,7 @@ app.use("/api/admin/analytics", adminAnalyticsRoutes);
 app.use("/api/admin/booking-requests", adminBookingRequestRoutes);
 app.use("/api/admin/transaction-requests", adminTransactionRequestRoutes);
 app.use("/api/admin/ratings", adminRatingRoutes);
+app.use("/api/notifications", adminNotificationRoutes);
 
 // Shared Routes
 app.use("/api/admin/upload", uploadImageRoutes);
@@ -94,12 +96,12 @@ app.use("/api/client/customers", clientCustomerRoutes);
 
 // Health check
 app.get("/health", (req: Request, res: Response) => {
-	res.status(200).json({ message: "Server is running!" });
+  res.status(200).json({ message: "Server is running!" });
 });
 
 // Not-found middleware
 app.use((req: Request, res: Response) => {
-	res.status(404).json({ status: 404, message: "Route not found" });
+  res.status(404).json({ status: 404, message: "Route not found" });
 });
 
 // Error handling middleware
@@ -107,18 +109,18 @@ app.use(errorHandler);
 
 // Start server
 const startServer = async () => {
-	try {
-		await connectDatabase();
-		app.listen(PORT, () => {
-			console.log(`Server running on http://localhost:${PORT}`);
-		});
-	} catch (error) {
-		console.error(
-			"Failed to start server:",
-			error instanceof Error ? error.message : error
-		);
-		process.exit(1);
-	}
+  try {
+    await connectDatabase();
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error(
+      "Failed to start server:",
+      error instanceof Error ? error.message : error,
+    );
+    process.exit(1);
+  }
 };
 
 startServer();
